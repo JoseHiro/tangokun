@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\(''''wavesurfer.js''''\\)\")",
+      "Bash(node -e \"console.log\\(require\\(''./node_modules/wavesurfer.js/package.json''\\).version\\)\")",
+      "Bash(npm test:*)"
+    ]
+  }
+}
