@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     where: { userId },
     select: { jp: true },
   });
-  const existingSet = new Set(existing.map((w) => w.jp));
+  const existingSet = new Set(existing.map((w: { jp: string }) => w.jp));
 
   const newRows = rows.filter((r) => !existingSet.has(r.jp)).map((r) => ({ ...r, userId }));
   const skipped = rows.length - newRows.length;
