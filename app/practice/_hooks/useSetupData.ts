@@ -5,6 +5,8 @@ import type { Direction, GrammarTab, VocabWord, GrammarItem } from "../_types";
 
 const JLPT_ORDER = ["N5", "N4", "N3", "N2", "N1"];
 
+export type Deck = { id: string; name: string; vocabIds: string[] };
+
 function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
   return arr.reduce<Record<string, T[]>>((acc, item) => {
     const k = key(item) || "Other";
@@ -22,6 +24,9 @@ export function useSetupData() {
   const [allGrammar, setAllGrammar] = useState<GrammarItem[]>([]);
   const [selectedGrammarIds, setSelectedGrammarIds] = useState<Set<string>>(new Set());
   const [grammarLoading, setGrammarLoading] = useState(true);
+  const [decks, setDecks] = useState<Deck[]>([]);
+  const [decksLoading, setDecksLoading] = useState(true);
+  const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/vocab")
@@ -38,7 +43,24 @@ export function useSetupData() {
       .then((data: GrammarItem[]) => setAllGrammar(data))
       .catch(() => {})
       .finally(() => setGrammarLoading(false));
+
+    fetch("/api/decks")
+      .then((r) => r.json())
+      .then((data: Deck[]) => {
+        setDecks(Array.isArray(data) ? data.map((d) => ({ ...d, vocabIds: Array.isArray(d.vocabIds) ? d.vocabIds : [] })) : []);
+      })
+      .catch(() => {})
+      .finally(() => setDecksLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!selectedDeckId || !allVocab.length) return;
+    const deck = decks.find((d) => d.id === selectedDeckId);
+    if (!deck) return;
+    const validIds = new Set(allVocab.map((w) => w.id));
+    const idsFromDeck = deck.vocabIds.filter((id) => validIds.has(id));
+    setSelectedVocabIds(new Set(idsFromDeck));
+  }, [selectedDeckId, decks, allVocab]);
 
   function toggleVocab(id: string) {
     setSelectedVocabIds((prev) => {
@@ -80,6 +102,7 @@ export function useSetupData() {
     direction, setDirection,
     grammarTab, setGrammarTab,
     allVocab, selectedVocabIds, vocabLoading,
+    decks, decksLoading, selectedDeckId, setSelectedDeckId,
     allGrammar, selectedGrammarIds, grammarLoading,
     toggleVocab, toggleAllVocab, toggleGrammar,
     grammarByJlpt, jlptGroups,

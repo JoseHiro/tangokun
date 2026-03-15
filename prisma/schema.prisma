@@ -23,7 +23,17 @@ model User {
   accounts      Account[]
   sessions      Session[]
   vocabulary    Vocabulary[]
+  decks         Deck[]
   createdAt     DateTime     @default(now())
+}
+
+model Deck {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  vocabIds  Json     // string[] of vocabulary ids
+  createdAt DateTime @default(now())
 }
 
 model Account {

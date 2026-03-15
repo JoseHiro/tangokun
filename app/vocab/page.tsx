@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Upload } from "lucide-react";
+import { Upload, Pencil, Trash2 } from "lucide-react";
 import { useLanguage } from "@/lib/LanguageContext";
 import PageContainer from "@/components/layout/page-container";
 import Button from "@/components/ui/button";
@@ -11,11 +11,15 @@ import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/t
 
 type Word = { id: string; jp: string; en: string; createdAt: string };
 
+type Deck = { id: string; name: string; vocabIds: string[] };
+
 type ImportStatus =
   | { state: "idle" }
   | { state: "loading" }
   | { state: "success"; imported: number; skipped: number }
   | { state: "error"; message: string };
+
+const MAX_DECKS = 5;
 
 export default function VocabPage() {
   const { t } = useLanguage();
@@ -29,6 +33,13 @@ export default function VocabPage() {
   const [importStatus, setImportStatus] = useState<ImportStatus>({ state: "idle" });
   const [isDragging, setIsDragging] = useState(false);
 
+  const [decks, setDecks] = useState<Deck[]>([]);
+  const [deckFetching, setDeckFetching] = useState(true);
+  const [editingDeckId, setEditingDeckId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editVocabIds, setEditVocabIds] = useState<Set<string>>(new Set());
+  const [deckSaving, setDeckSaving] = useState(false);
+
   async function fetchWords() {
     const res = await fetch("/api/vocab");
     const data = await res.json();
@@ -36,8 +47,23 @@ export default function VocabPage() {
     setFetching(false);
   }
 
+  async function fetchDecks() {
+    const res = await fetch("/api/decks");
+    const data = await res.json();
+    setDecks(Array.isArray(data) ? data.map((d: { id: string; name: string; vocabIds: unknown }) => ({
+      id: d.id,
+      name: d.name,
+      vocabIds: Array.isArray(d.vocabIds) ? d.vocabIds : [],
+    })) : []);
+    setDeckFetching(false);
+  }
+
   useEffect(() => {
     fetchWords();
+  }, []);
+
+  useEffect(() => {
+    fetchDecks();
   }, []);
 
   async function handleAdd(e: React.FormEvent) {
@@ -98,6 +124,63 @@ export default function VocabPage() {
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
     if (file) handleImportFile(file);
+  }
+
+  async function createDeck() {
+    if (decks.length >= MAX_DECKS) return;
+    const res = await fetch("/api/decks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) return;
+    const deck = await res.json();
+    setDecks((prev) => [...prev, { id: deck.id, name: deck.name, vocabIds: [] }]);
+    setEditingDeckId(deck.id);
+    setEditName(deck.name);
+    setEditVocabIds(new Set());
+  }
+
+  function startEditDeck(deck: Deck) {
+    setEditingDeckId(deck.id);
+    setEditName(deck.name);
+    setEditVocabIds(new Set(deck.vocabIds));
+  }
+
+  function cancelEditDeck() {
+    setEditingDeckId(null);
+  }
+
+  async function saveDeck() {
+    if (!editingDeckId) return;
+    setDeckSaving(true);
+    const res = await fetch(`/api/decks/${editingDeckId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: editName.trim() || "Deck", vocabIds: Array.from(editVocabIds) }),
+    });
+    setDeckSaving(false);
+    if (!res.ok) return;
+    const updated = await res.json();
+    setDecks((prev) => prev.map((d) => (d.id === updated.id ? { ...d, name: updated.name, vocabIds: Array.isArray(updated.vocabIds) ? updated.vocabIds : [] } : d)));
+    setEditingDeckId(null);
+  }
+
+  async function deleteDeck(id: string) {
+    if (!confirm(t("deleteDeck") + "?")) return;
+    const res = await fetch(`/api/decks/${id}`, { method: "DELETE" });
+    if (!res.ok) return;
+    setDecks((prev) => prev.filter((d) => d.id !== id));
+    if (editingDeckId === id) setEditingDeckId(null);
+  }
+
+  function toggleEditVocab(id: string) {
+    setEditVocabIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   return (
@@ -174,6 +257,120 @@ export default function VocabPage() {
           )}
           {importStatus.state === "error" && (
             <p className="mt-3 text-sm text-red-500">{importStatus.message}</p>
+          )}
+        </Card>
+
+        {/* Decks */}
+        <Card padding="md">
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {t("decks")}
+            </h2>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={createDeck}
+              disabled={deckFetching || decks.length >= MAX_DECKS}
+            >
+              {t("createDeck")}
+            </Button>
+          </div>
+          {decks.length >= MAX_DECKS && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{t("maxDecks")}</p>
+          )}
+          {deckFetching ? (
+            <p className="text-sm text-gray-400 dark:text-gray-500">{t("loading")}</p>
+          ) : decks.length === 0 ? (
+            <p className="text-sm text-gray-400 dark:text-gray-500">
+              {t("createDeck")} to group words for practice.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {decks.map((deck) => (
+                <li
+                  key={deck.id}
+                  className="flex items-center justify-between gap-2 py-2 border-b border-gray-100 dark:border-gray-800 last:border-0"
+                >
+                  {editingDeckId === deck.id ? (
+                    <div className="flex-1 space-y-3">
+                      <Input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder={t("deckName")}
+                        className="text-sm"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {t("selectWordsForDeck")}
+                      </p>
+                      <div className="max-h-40 overflow-y-auto space-y-1.5 border border-gray-200 dark:border-gray-700 rounded-lg p-2">
+                        {words.length === 0 ? (
+                          <p className="text-xs text-gray-400">{t("noWords")}</p>
+                        ) : (
+                          words.map((w) => (
+                            <label
+                              key={w.id}
+                              className="flex items-center gap-2 cursor-pointer text-sm"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={editVocabIds.has(w.id)}
+                                onChange={() => toggleEditVocab(w.id)}
+                                className="rounded border-gray-300 dark:border-gray-600"
+                              />
+                              <span className="font-medium text-gray-800 dark:text-gray-200">
+                                {w.jp}
+                              </span>
+                              <span className="text-gray-500 dark:text-gray-400">{w.en}</span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={saveDeck}
+                          disabled={deckSaving}
+                        >
+                          {t("saveDeck")}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={cancelEditDeck}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="font-medium text-gray-900 dark:text-gray-100">
+                        {deck.name}
+                      </span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {deck.vocabIds.length} {t("wordsInDeck")}
+                      </span>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => startEditDeck(deck)}
+                          className="p-1.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                          aria-label={t("editDeck")}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteDeck(deck.id)}
+                          className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                          aria-label={t("deleteDeck")}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </Card>
 

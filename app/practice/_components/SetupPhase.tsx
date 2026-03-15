@@ -1,6 +1,7 @@
 import Button from "@/components/ui/button";
 import { GrammarGroup } from "./GrammarGroup";
 import type { Direction, GrammarTab, VocabWord, GrammarItem } from "../_types";
+import type { Deck } from "../_hooks/useSetupData";
 
 interface SetupPhaseProps {
   direction: Direction;
@@ -12,6 +13,10 @@ interface SetupPhaseProps {
   vocabLoading: boolean;
   onToggleVocab: (id: string) => void;
   onToggleAllVocab: () => void;
+  decks: Deck[];
+  decksLoading: boolean;
+  selectedDeckId: string | null;
+  onDeckChange: (deckId: string | null) => void;
   allGrammar: GrammarItem[];
   selectedGrammarIds: Set<string>;
   grammarLoading: boolean;
@@ -29,6 +34,7 @@ export function SetupPhase({
   direction, onDirectionChange,
   grammarTab, onGrammarTabChange,
   allVocab, selectedVocabIds, vocabLoading, onToggleVocab, onToggleAllVocab,
+  decks, decksLoading, selectedDeckId, onDeckChange,
   allGrammar, selectedGrammarIds, grammarLoading, onToggleGrammar,
   grammarByJlpt, jlptGroups, grammarByGenki, genkiGroups,
   error, onStart, t,
@@ -56,6 +62,27 @@ export function SetupPhase({
           ))}
         </div>
       </div>
+
+      {/* Deck */}
+      {!decksLoading && decks.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">
+            {t("useDeck")}
+          </p>
+          <select
+            value={selectedDeckId ?? ""}
+            onChange={(e) => onDeckChange(e.target.value || null)}
+            className="w-full max-w-xs px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+          >
+            <option value="">{t("deckNone")}</option>
+            {decks.map((deck) => (
+              <option key={deck.id} value={deck.id}>
+                {deck.name} ({deck.vocabIds.length})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Vocabulary */}
       <div>

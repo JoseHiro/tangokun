@@ -63,6 +63,10 @@ export default function PracticePage() {
           vocabLoading={setup.vocabLoading}
           onToggleVocab={setup.toggleVocab}
           onToggleAllVocab={setup.toggleAllVocab}
+          decks={setup.decks}
+          decksLoading={setup.decksLoading}
+          selectedDeckId={setup.selectedDeckId}
+          onDeckChange={setup.setSelectedDeckId}
           allGrammar={setup.allGrammar}
           selectedGrammarIds={setup.selectedGrammarIds}
           grammarLoading={setup.grammarLoading}
