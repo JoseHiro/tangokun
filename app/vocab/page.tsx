@@ -268,7 +268,7 @@ export default function VocabPage() {
             </h2>
             <Button
               variant="secondary"
-              size="sm"
+              className="text-sm px-3 py-1.5"
               onClick={createDeck}
               disabled={deckFetching || decks.length >= MAX_DECKS}
             >
@@ -329,13 +329,13 @@ export default function VocabPage() {
                       <div className="flex gap-2">
                         <Button
                           variant="primary"
-                          size="sm"
+                          className="text-sm px-3 py-1.5"
                           onClick={saveDeck}
                           disabled={deckSaving}
                         >
                           {t("saveDeck")}
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={cancelEditDeck}>
+                        <Button variant="ghost" className="text-sm px-3 py-1.5" onClick={cancelEditDeck}>
                           Cancel
                         </Button>
                       </div>
