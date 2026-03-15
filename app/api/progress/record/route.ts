@@ -31,7 +31,10 @@ export async function POST(req: NextRequest) {
   const existingProgress = await prisma.vocabularyProgress.findMany({
     where: { userId, vocabId: { in: vocabIds } },
   });
-  const progressMap = new Map(existingProgress.map((p: { vocabId: string; interval: number; ease: number }) => [p.vocabId, p]));
+  type ProgressRow = { vocabId: string; interval: number; ease: number };
+  const progressMap = new Map<string, ProgressRow>(
+    existingProgress.map((p: ProgressRow) => [p.vocabId, p])
+  );
 
   const upserts = vocabIds.map((vocabId) => {
     const existing = progressMap.get(vocabId);
