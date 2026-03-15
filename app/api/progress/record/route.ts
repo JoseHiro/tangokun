@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { computeNextReview } from "@/lib/spaced-repetition";
-import type { VocabularyProgress } from "@prisma/client";
 
 type RecordBody = {
   vocabIds: string[];
@@ -29,10 +28,10 @@ export async function POST(req: NextRequest) {
   await prisma.practiceLog.create({ data: { userId, correct } });
 
   // Upsert VocabularyProgress for each vocab word
-  const existingProgress: VocabularyProgress[] = await prisma.vocabularyProgress.findMany({
+  const existingProgress = await prisma.vocabularyProgress.findMany({
     where: { userId, vocabId: { in: vocabIds } },
   });
-  const progressMap = new Map(existingProgress.map((p) => [p.vocabId, p]));
+  const progressMap = new Map(existingProgress.map((p: { vocabId: string; interval: number; ease: number }) => [p.vocabId, p]));
 
   const upserts = vocabIds.map((vocabId) => {
     const existing = progressMap.get(vocabId);
