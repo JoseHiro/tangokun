@@ -137,7 +137,7 @@ ${grammar!.example ? `Example usage: ${grammar!.example}` : ""}`,
   }
 
   const wordCount = Math.min(allWords.length, 1 + Math.floor(Math.random() * 2));
-  const chosenWords = sample(allWords, wordCount);
+  const chosenWords = sample<UsedWord>(allWords, wordCount);
   const vocabList = chosenWords.map((w) => `${w.jp} (${w.en})`).join("\n");
 
   let systemPrompt: string;
