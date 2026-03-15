@@ -60,8 +60,9 @@ export async function POST(req: NextRequest) {
           where: { userId, jp: { in: jpValues } },
           select: { id: true, jp: true, en: true },
         });
-        const idMap = new Map(
-          dbWords.map((w: { id: string; jp: string; en: string }) => [w.jp, w.id])
+        type VocabRow = { id: string; jp: string; en: string };
+        const idMap = new Map<string, string>(
+          (dbWords as VocabRow[]).map((w) => [w.jp, w.id])
         );
         const enriched: UsedWord[] = rawWords.map((w) => ({
           id: w.id ?? idMap.get(w.jp) ?? "",
