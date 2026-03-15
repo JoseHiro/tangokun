@@ -9,12 +9,14 @@ import Card from "@/components/ui/card";
 import Button from "@/components/ui/button";
 import Input from "@/components/ui/input";
 
-export default function LoginPage() {
+export default function SignupPage() {
   const { t } = useLanguage();
   const { status } = useSession();
   const router = useRouter();
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,19 +24,40 @@ export default function LoginPage() {
     if (status === "authenticated") router.push("/");
   }, [status, router]);
 
-  async function handleLogin(e: React.FormEvent) {
+  async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim() || !password) return;
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
     setError("");
+
+    const res = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Signup failed. Please try again.");
+      setLoading(false);
+      return;
+    }
+
+    // Auto sign-in after successful signup
     const result = await signIn("credentials", {
       email: email.trim(),
       password,
       redirect: false,
     });
+
     if (result?.error) {
-      setError("Invalid email or password.");
-      setLoading(false);
+      // Account created but auto-login failed — send to login
+      router.push("/login");
     } else {
       router.push("/");
     }
@@ -47,9 +70,11 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-            {t("loginTitle")}
+            Create an account
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{t("loginSubtitle")}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Start learning Japanese vocabulary
+          </p>
         </div>
 
         <Card>
@@ -73,7 +98,15 @@ export default function LoginPage() {
             <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-3">
+          <form onSubmit={handleSignup} className="space-y-3">
+            <Input
+              type="text"
+              placeholder="Name (optional)"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoComplete="name"
+              autoFocus
+            />
             <Input
               type="email"
               placeholder={t("emailPlaceholder")}
@@ -83,27 +116,34 @@ export default function LoginPage() {
             />
             <Input
               type="password"
-              placeholder="Password"
+              placeholder="Password (min. 6 characters)"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
+              autoComplete="new-password"
+            />
+            <Input
+              type="password"
+              placeholder="Confirm password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete="new-password"
             />
             {error && <p className="text-xs text-red-500">{error}</p>}
             <Button
               type="submit"
               variant="primary"
               className="w-full justify-center"
-              disabled={loading || !email.trim() || !password}
+              disabled={loading || !email.trim() || !password || !confirm}
             >
-              {loading ? "..." : t("signIn")}
+              {loading ? "..." : "Create account"}
             </Button>
           </form>
         </Card>
 
         <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-4">
-          Don&apos;t have an account?{" "}
-          <Link href="/signup" className="text-green-600 dark:text-green-400 hover:underline font-medium">
-            Sign up
+          Already have an account?{" "}
+          <Link href="/login" className="text-green-600 dark:text-green-400 hover:underline font-medium">
+            {t("signIn")}
           </Link>
         </p>
       </div>
