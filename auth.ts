@@ -5,6 +5,17 @@ import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
+const isLocal =
+  process.env.NODE_ENV === "development" ||
+  process.env.VERCEL_ENV === "development";
+
+const googleClientId = isLocal
+  ? process.env.GOOGLE_CLIENT_ID_LOCAL
+  : process.env.GOOGLE_CLIENT_ID_MAIN;
+const googleClientSecret = isLocal
+  ? process.env.GOOGLE_CLIENT_SECRET_LOCAL
+  : process.env.GOOGLE_CLIENT_SECRET_MAIN;
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
   session: { strategy: "jwt" },
@@ -13,8 +24,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   providers: [
     Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId: googleClientId!,
+      clientSecret: googleClientSecret!,
+      allowDangerousEmailAccountLinking: true,
     }),
     Credentials({
       credentials: {
