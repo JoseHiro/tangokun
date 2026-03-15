@@ -74,7 +74,7 @@ async function main() {
 
   // Load existing patterns to avoid duplicates
   const existing = await prisma.grammar.findMany({ select: { pattern: true } });
-  const existingSet = new Set(existing.map((g) => g.pattern));
+  const existingSet = new Set(existing.map((g: { pattern: string }) => g.pattern));
 
   const newGrammar = source.filter((g) => !existingSet.has(g.pattern));
 
