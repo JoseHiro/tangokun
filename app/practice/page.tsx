@@ -38,6 +38,16 @@ export default function PracticePage() {
   function handleNext() {
     if (practice.currentIdx + 1 >= session.session.length) {
       session.setPhase("finished");
+      // Submit all question results to record progress at session level
+      const progressResults = session.session.map((q, i) => ({
+        wordId: q.wordUsed.id,
+        correct: practice.results[i]?.correct ?? false,
+      }));
+      fetch("/api/progress/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ results: progressResults }),
+      }).catch(() => {});
     } else {
       practice.advance();
     }
@@ -75,6 +85,9 @@ export default function PracticePage() {
           jlptGroups={setup.jlptGroups}
           grammarByGenki={setup.grammarByGenki}
           genkiGroups={setup.genkiGroups}
+          progressMap={setup.progressMap}
+          onFocusWeak={setup.focusWeak}
+          weakCount={setup.weakCount}
           error={session.error}
           onStart={handleStartSession}
           t={t}

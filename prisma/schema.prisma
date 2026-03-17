@@ -89,15 +89,16 @@ model Sentence {
 }
 
 model VocabularyProgress {
-  id           String   @id @default(cuid())
-  userId       String
-  vocabId      String
-  ease         Int      @default(2)
-  interval     Int      @default(1)
-  dueDate      DateTime @default(now())
-  correctCount Int      @default(0)
-  wrongCount   Int      @default(0)
-  createdAt    DateTime @default(now())
+  id                   String    @id @default(cuid())
+  userId               String
+  vocabId              String
+  lifetimeAttempts     Int       @default(0)
+  lifetimeCorrect      Int       @default(0)
+  /// JSON array of up to 20 recent session scores (number[])
+  recentSessionScores  Json      @default("[]")
+  lastSessionScore     Float?
+  lastSeen             DateTime?
+  createdAt            DateTime  @default(now())
 
   @@unique([userId, vocabId])
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { Direction, GrammarTab, VocabWord, GrammarItem } from "../_types";
+import type { WordProgressSummary } from "@/app/api/progress/words/route";
 
 const JLPT_ORDER = ["N5", "N4", "N3", "N2", "N1"];
 
@@ -27,6 +28,7 @@ export function useSetupData() {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [decksLoading, setDecksLoading] = useState(true);
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
+  const [progressMap, setProgressMap] = useState<Record<string, WordProgressSummary>>({});
 
   useEffect(() => {
     fetch("/api/vocab")
@@ -51,6 +53,16 @@ export function useSetupData() {
       })
       .catch(() => {})
       .finally(() => setDecksLoading(false));
+
+    fetch("/api/progress/words")
+      .then((r) => r.json())
+      .then((data: WordProgressSummary[]) => {
+        if (!Array.isArray(data)) return;
+        const map: Record<string, WordProgressSummary> = {};
+        data.forEach((p) => { map[p.wordId] = p; });
+        setProgressMap(map);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -78,6 +90,21 @@ export function useSetupData() {
         : new Set(allVocab.map((w) => w.id)),
     );
   }
+
+  function focusWeak() {
+    const weakIds = allVocab
+      .filter((w) => {
+        const m = progressMap[w.id]?.mastery ?? "new";
+        return m === "new" || m === "learning";
+      })
+      .map((w) => w.id);
+    setSelectedVocabIds(new Set(weakIds.length > 0 ? weakIds : allVocab.map((w) => w.id)));
+  }
+
+  const weakCount = allVocab.filter((w) => {
+    const m = progressMap[w.id]?.mastery ?? "new";
+    return m === "new" || m === "learning";
+  }).length;
 
   function toggleGrammar(id: string) {
     setSelectedGrammarIds((prev) => {
@@ -107,5 +134,6 @@ export function useSetupData() {
     toggleVocab, toggleAllVocab, toggleGrammar,
     grammarByJlpt, jlptGroups,
     grammarByGenki, genkiGroups,
+    progressMap, focusWeak, weakCount,
   };
 }

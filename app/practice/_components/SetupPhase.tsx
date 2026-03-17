@@ -1,7 +1,9 @@
 import Button from "@/components/ui/button";
 import { GrammarGroup } from "./GrammarGroup";
+import { MasteryBadge } from "@/components/ui/mastery-badge";
 import type { Direction, GrammarTab, VocabWord, GrammarItem } from "../_types";
 import type { Deck } from "../_hooks/useSetupData";
+import type { WordProgressSummary } from "@/app/api/progress/words/route";
 
 interface SetupPhaseProps {
   direction: Direction;
@@ -25,6 +27,9 @@ interface SetupPhaseProps {
   jlptGroups: string[];
   grammarByGenki: Record<string, GrammarItem[]>;
   genkiGroups: string[];
+  progressMap: Record<string, WordProgressSummary>;
+  onFocusWeak: () => void;
+  weakCount: number;
   error: string;
   onStart: () => void;
   t: (key: string) => string;
@@ -37,6 +42,7 @@ export function SetupPhase({
   decks, decksLoading, selectedDeckId, onDeckChange,
   allGrammar, selectedGrammarIds, grammarLoading, onToggleGrammar,
   grammarByJlpt, jlptGroups, grammarByGenki, genkiGroups,
+  progressMap, onFocusWeak, weakCount,
   error, onStart, t,
 }: SetupPhaseProps) {
   return (
@@ -91,12 +97,22 @@ export function SetupPhase({
             {t("selectVocab")}
           </p>
           {allVocab.length > 0 && (
-            <button
-              onClick={onToggleAllVocab}
-              className="text-xs text-green-600 dark:text-green-400 hover:underline"
-            >
-              {selectedVocabIds.size === allVocab.length ? t("deselectAll") : t("selectAll")}
-            </button>
+            <div className="flex items-center gap-3">
+              {weakCount > 0 && (
+                <button
+                  onClick={onFocusWeak}
+                  className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                >
+                  {t("focusWeak")} ({weakCount} {t("focusWeakDesc")})
+                </button>
+              )}
+              <button
+                onClick={onToggleAllVocab}
+                className="text-xs text-green-600 dark:text-green-400 hover:underline"
+              >
+                {selectedVocabIds.size === allVocab.length ? t("deselectAll") : t("selectAll")}
+              </button>
+            </div>
           )}
         </div>
         {vocabLoading ? (
@@ -117,7 +133,8 @@ export function SetupPhase({
                   className="accent-green-600 w-4 h-4 shrink-0"
                 />
                 <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{w.jp}</span>
-                <span className="text-sm text-gray-400 dark:text-gray-500">{w.en}</span>
+                <span className="text-sm text-gray-400 dark:text-gray-500 flex-1">{w.en}</span>
+                <MasteryBadge mastery={progressMap[w.id]?.mastery ?? "new"} variant="dot" />
               </label>
             ))}
           </div>

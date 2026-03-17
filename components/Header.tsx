@@ -35,8 +35,15 @@ export default function Header() {
         <div className="flex items-center gap-3 min-w-0">
           <Link
             href={session?.user ? "/dashboard" : "/"}
-            className="text-sm font-semibold text-gray-900 dark:text-gray-100 tracking-tight shrink-0"
+            className="flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-gray-100 tracking-tight shrink-0"
           >
+            <Image
+              src="/webp/tangokun_icon.webp"
+              alt=""
+              width={20}
+              height={20}
+              className="rounded-sm shrink-0"
+            />
             {t("appName")}
           </Link>
 
@@ -87,7 +94,9 @@ export default function Header() {
 
           {session?.user ? (
             <div className="flex items-center gap-0.5 ml-1 pl-2 border-l border-gray-100 dark:border-gray-800">
-              <UserAvatar name={session.user.name} image={session.user.image} />
+              <Link href="/settings/profile" title="Settings">
+                <UserAvatar name={session.user.name} image={session.user.image} />
+              </Link>
               <button
                 onClick={() => signOut({ callbackUrl: "/login" })}
                 className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"

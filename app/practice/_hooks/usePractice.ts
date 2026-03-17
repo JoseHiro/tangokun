@@ -75,20 +75,6 @@ export function usePractice(session: SessionQuestion[], direction: Direction) {
         return next;
       });
       setJudging(false);
-
-      const wordId = q.wordUsed.id;
-      if (wordId) {
-        fetch("/api/progress/record", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            vocabIds: [wordId],
-            correct: data.correct,
-            sentence: q.sentence,
-            studentAnswer: ans.trim(),
-          }),
-        }).catch(() => {});
-      }
     },
     [session, currentIdx, judging, currentJudge, direction],
   );

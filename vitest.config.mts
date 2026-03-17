@@ -8,13 +8,15 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     coverage: {
       provider: "v8",
-      include: ["features/**/*.ts"],
+      include: ["features/**/*.ts", "app/api/**/*.ts"],
       exclude: ["features/**/*.d.ts"],
     },
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),
+      // Stub Next.js's server-only guard so API routes can be imported in tests
+      "server-only": path.resolve(__dirname, "tests/__mocks__/server-only.ts"),
     },
   },
 });

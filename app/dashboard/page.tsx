@@ -6,11 +6,16 @@ import { useSession } from "next-auth/react";
 import { useLanguage } from "@/lib/LanguageContext";
 import Button, { buttonVariants } from "@/components/ui/button";
 import Card from "@/components/ui/card";
+import { getMasteryConfig, MASTERY_ORDER } from "@/components/ui/mastery-badge";
+import type { MasteryState } from "@/features/progress/types";
+
+type MasteryBreakdown = Record<MasteryState, number>;
 
 type DashboardStats = {
   dueToday: number;
   totalVocab: number;
   accuracy: number;
+  masteryBreakdown: MasteryBreakdown;
   wordOfTheDay: {
     jp: string;
     en: string;
@@ -87,6 +92,18 @@ export default function DashboardPage() {
         </section>
       )}
 
+      {/* ── Mastery Breakdown ── */}
+      {!loading && stats && stats.totalVocab > 0 && (
+        <section>
+          <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-3">
+            {t("masteryBreakdown")}
+          </p>
+          <Card>
+            <MasteryBar breakdown={stats.masteryBreakdown} total={stats.totalVocab} t={t as (k: string) => string} />
+          </Card>
+        </section>
+      )}
+
       {/* ── Word of the Day ── */}
       {!loading && stats?.wordOfTheDay && (
         <section>
@@ -142,5 +159,40 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
       </p>
       <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100">{value}</p>
     </Card>
+  );
+}
+
+function MasteryBar({ breakdown, total, t }: { breakdown: MasteryBreakdown; total: number; t: (k: string) => string }) {
+  return (
+    <div className="space-y-3">
+      {/* Stacked bar */}
+      <div className="flex h-3 rounded-full overflow-hidden gap-px">
+        {MASTERY_ORDER.map((m) => {
+          const pct = total > 0 ? (breakdown[m] / total) * 100 : 0;
+          if (pct === 0) return null;
+          const { dot } = getMasteryConfig(m);
+          return (
+            <div
+              key={m}
+              className={`${dot} transition-all`}
+              style={{ width: `${pct}%` }}
+              title={`${t(`mastery_${m}`)}: ${breakdown[m]}`}
+            />
+          );
+        })}
+      </div>
+      {/* Legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {MASTERY_ORDER.map((m) => {
+          const { text, dot } = getMasteryConfig(m);
+          return (
+            <div key={m} className={`flex items-center gap-1.5 text-xs ${text}`}>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
+              {t(`mastery_${m}`)} <span className="opacity-60">{breakdown[m]}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
