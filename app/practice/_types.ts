@@ -25,6 +25,7 @@ export type SessionQuestion = {
   translation: string;
   furigana: string;
   wordInSentence: string;
+  wordReading: string;
   supportingWords: SupportingWord[];
   wordUsed: VocabWord;
   grammarUsed: { pattern: string; meaning: string } | null;

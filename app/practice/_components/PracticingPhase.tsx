@@ -132,7 +132,7 @@ export function PracticingPhase({
                   // Build list of all annotated words (target + supporting)
                   const targetWord: SupportingWord = {
                     word: currentQ.wordInSentence,
-                    reading: currentQ.furigana,
+                    reading: currentQ.wordReading,
                     meaning: currentQ.wordUsed.en,
                   };
                   const allWords: { annotation: SupportingWord; isTarget: boolean }[] = [

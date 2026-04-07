@@ -12,6 +12,7 @@ export type GeneratedSentence = {
   translation: string;
   furigana: string;
   wordInSentence: string;
+  wordReading: string;
   supportingWords: SupportingWord[];
 };
 
@@ -86,6 +87,7 @@ export async function generateSentence(
     "  translation    — 自然な英語訳",
     "  furigana       — 文全体のひらがな読み",
     "  wordInSentence — 文中に実際に登場する単語の表層形（活用形のまま）。例：単語が「食べる」なら文中の「食べました」や「食べて」など",
+    "  wordReading    — wordInSentence のひらがな読みのみ（文全体ではなく、その単語だけ）。例：「起きましょう」→「おきましょう」",
     "  supportingWords — 文中で使った主要な単語（指定単語を除く）の配列。最大5個。各要素は { word: 表層形, reading: ひらがな読み, meaning: 英語の意味 } の形式。",
   ]
     .filter(Boolean)
@@ -118,6 +120,7 @@ export async function generateSentence(
     translation: result.translation ?? "",
     furigana: result.furigana ?? "",
     wordInSentence: result.wordInSentence ?? word.jp,
+    wordReading: result.wordReading ?? "",
     supportingWords: Array.isArray(result.supportingWords) ? result.supportingWords : [],
   };
 }

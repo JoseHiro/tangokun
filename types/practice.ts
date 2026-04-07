@@ -30,6 +30,7 @@ export type SessionQuestion = {
   translation: string;
   furigana: string;
   wordInSentence: string; // exact surface form of the vocabulary word as it appears in the sentence
+  wordReading: string;    // hiragana reading of wordInSentence only (not the full sentence)
   supportingWords: SupportingWord[];
   wordUsed: VocabWord;
   grammarUsed: { pattern: string; meaning: string } | null;

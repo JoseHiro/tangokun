@@ -61,6 +61,7 @@ export async function createSession({
         translation: result.value.translation,
         furigana: result.value.furigana,
         wordInSentence: result.value.wordInSentence,
+        wordReading: result.value.wordReading,
         supportingWords: result.value.supportingWords,
         wordUsed: word,
         grammarUsed: grammar

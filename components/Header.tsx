@@ -97,7 +97,6 @@ export default function Header() {
             <UserAccountMenu
               name={session.user.name}
               image={session.user.image}
-              t={t}
             />
           ) : (
             <Link
@@ -116,12 +115,11 @@ export default function Header() {
 function UserAccountMenu({
   name,
   image,
-  t,
 }: {
   name?: string | null;
   image?: string | null;
-  t: (key: string) => string;
 }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
