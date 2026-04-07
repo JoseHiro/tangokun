@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -93,18 +94,11 @@ export default function Header() {
           </button>
 
           {session?.user ? (
-            <div className="flex items-center gap-0.5 ml-1 pl-2 border-l border-gray-100 dark:border-gray-800">
-              <Link href="/settings/profile" title="Settings">
-                <UserAvatar name={session.user.name} image={session.user.image} />
-              </Link>
-              <button
-                onClick={() => signOut({ callbackUrl: "/login" })}
-                className="p-1.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-                title={t("signOut")}
-              >
-                <LogOut size={14} />
-              </button>
-            </div>
+            <UserAccountMenu
+              name={session.user.name}
+              image={session.user.image}
+              t={t}
+            />
           ) : (
             <Link
               href="/login"
@@ -116,6 +110,82 @@ export default function Header() {
         </div>
       </div>
     </header>
+  );
+}
+
+function UserAccountMenu({
+  name,
+  image,
+  t,
+}: {
+  name?: string | null;
+  image?: string | null;
+  t: (key: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative ml-1 pl-2 border-l border-gray-100 dark:border-gray-800">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950"
+        title={t("accountMenuTriggerTitle")}
+      >
+        <UserAvatar name={name} image={image} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-[calc(100%+6px)] z-[100] min-w-[11rem] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900"
+        >
+          <Link
+            href="/settings/profile"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            {t("settings")}
+          </Link>
+          <Link
+            href="/help"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            {t("help")}
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            <LogOut size={14} className="shrink-0 opacity-60" aria-hidden />
+            {t("signOut")}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

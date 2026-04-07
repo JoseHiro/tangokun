@@ -102,13 +102,13 @@ describe("GET /api/progress/words", () => {
     expect(data[0].mastery).toBe("new");
   });
 
-  it("assigns 'mastered' mastery for word with high recent scores", async () => {
+  it("assigns 'mastered' mastery for word with 8+ sessions and high scores", async () => {
     authed();
     mockFindMany.mockResolvedValue([
       makeProgressRow({
         lifetimeAttempts: 20,
         lifetimeCorrect: 19,
-        recentSessionScores: [1, 1, 1, 1, 1],
+        recentSessionScores: [1, 1, 1, 0.9, 1, 1, 0.9, 1],
         lastSessionScore: 1,
       }),
     ] as never);

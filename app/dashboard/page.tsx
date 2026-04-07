@@ -1,27 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useLearningSettings } from "@/lib/useLearningSettings";
 import { useLanguage } from "@/lib/LanguageContext";
-import Button, { buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import Card from "@/components/ui/card";
+import { SakuraFall } from "@/components/SakuraFall";
 import { getMasteryConfig, MASTERY_ORDER } from "@/components/ui/mastery-badge";
 import type { MasteryState } from "@/features/progress/types";
 
 type MasteryBreakdown = Record<MasteryState, number>;
 
 type DashboardStats = {
-  dueToday: number;
+  displayName: string;
+  dueForReview: number;
+  newWordsAvailable: number;
   totalVocab: number;
   accuracy: number;
+  streak: number;
   masteryBreakdown: MasteryBreakdown;
-  wordOfTheDay: {
-    jp: string;
-    en: string;
-    example: string | null;
-    exampleTranslation: string | null;
-  } | null;
 };
 
 function useGreeting(name: string | null | undefined, language: string): string {
@@ -36,12 +36,12 @@ function useGreeting(name: string | null | undefined, language: string): string 
 
 export default function DashboardPage() {
   const { t, language } = useLanguage();
-  const { data: session } = useSession();
+  const router = useRouter();
+  const { newWordsPerDay } = useLearningSettings();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const firstName = session?.user?.name?.split(" ")[0] ?? null;
-  const greeting = useGreeting(firstName, language);
+  const greeting = useGreeting(stats?.displayName ?? "user", language);
 
   useEffect(() => {
     fetch("/api/dashboard")
@@ -53,42 +53,105 @@ export default function DashboardPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  const dueMessage =
-    !stats || stats.dueToday === 0
-      ? t("allCaughtUp")
-      : language === "jp"
-      ? `${t("dueReviewPrefix")}${stats.dueToday}${t("dueReviewSuffix")}`
-      : `${t("dueReviewPrefix")} ${stats.dueToday} ${t("dueReviewSuffix")}`;
+  function handleStudyNow() {
+    sessionStorage.setItem("auto_start", "true");
+    router.push("/practice");
+  }
+
+  const dueForReview = stats?.dueForReview ?? 0;
+  const newWords = stats?.newWordsAvailable ?? 0;
+  const newToIntroduce = Math.min(newWords, newWordsPerDay);
+  const studyCount = dueForReview + newToIntroduce;
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-16 space-y-12">
+    <>
+      <SakuraFall />
+      <div className="relative z-10 max-w-2xl mx-auto px-6 py-16 space-y-12">
       {/* ── Hero ── */}
-      <section className="space-y-3">
-        <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
-          {greeting}
-        </h1>
-        <p className="text-lg text-gray-400 dark:text-gray-500 font-light">
-          {t("letsUseYourWords")}
-        </p>
-
-        {!loading && (
-          <p className="text-base text-gray-600 dark:text-gray-400 pt-1">
-            {dueMessage}
-          </p>
-        )}
-
-        <div className="pt-4">
-          <Link href="/practice" className={buttonVariants("primary") + " text-sm"}>
-            {t("startPractice")}
-          </Link>
+      <section>
+        <div className="flex items-center justify-between gap-4 sm:gap-8">
+          <div className="space-y-1 min-w-0 flex-1">
+            <h1 className="text-3xl font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
+              {greeting}
+            </h1>
+            <p className="text-lg text-gray-400 dark:text-gray-500 font-light">
+              {t("letsUseYourWords")}
+            </p>
+          </div>
+          <div className="shrink-0 w-32 h-32 sm:w-40 sm:h-40 relative">
+            <Image
+              src="/img/sakura.webp"
+              alt=""
+              fill
+              className="object-contain"
+              sizes="(max-width: 640px) 128px, 160px"
+              priority
+            />
+          </div>
         </div>
+      </section>
+
+      {/* ── Study Now ── */}
+      <section>
+        {loading ? (
+          <div className="h-36 rounded-2xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
+        ) : (
+          <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-6 flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                {t("studyNowLabel")}
+              </p>
+              <Link
+                href="/help#study-now"
+                className="text-xs font-medium text-gray-400 hover:text-green-600 dark:text-gray-500 dark:hover:text-green-400 shrink-0 transition-colors"
+              >
+                {t("howToUse")}
+              </Link>
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <div className="space-y-1 min-w-0">
+                {studyCount === 0 ? (
+                  <p className="text-xl font-semibold text-green-600 dark:text-green-400">
+                    All caught up! 🎉
+                  </p>
+                ) : (
+                  <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                    {dueForReview > 0 && (
+                      <span>{dueForReview} due for review</span>
+                    )}
+                    {dueForReview > 0 && newWords > 0 && (
+                      <span className="text-gray-300 dark:text-gray-600 mx-2">+</span>
+                    )}
+                    {newWords > 0 && (
+                      <span className="text-violet-600 dark:text-violet-400">
+                        {newToIntroduce} new
+                      </span>
+                    )}
+                  </p>
+                )}
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  {studyCount * 2} questions · no setup needed
+                </p>
+              </div>
+              {studyCount > 0 && (
+                <button
+                  onClick={handleStudyNow}
+                  className={buttonVariants("primary") + " shrink-0"}
+                >
+                  Start →
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ── Stats ── */}
       {!loading && stats && (
-        <section className="grid grid-cols-2 gap-4">
+        <section className="grid grid-cols-3 gap-4">
           <StatCard label={t("wordsLearned")} value={stats.totalVocab} />
-          <StatCard label={t("accuracy")} value={`${stats.accuracy}%`} />
+          <StatCard label={t("wordsMastered")} value={stats.masteryBreakdown.mastered} />
+          <StatCard label={t("streak")} value={stats.streak} suffix="🔥" />
         </section>
       )}
 
@@ -104,60 +167,31 @@ export default function DashboardPage() {
         </section>
       )}
 
-      {/* ── Word of the Day ── */}
-      {!loading && stats?.wordOfTheDay && (
-        <section>
-          <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-3">
-            {t("wordOfTheDay")}
-          </p>
-          <Card>
-            <div className="space-y-2">
-              <div className="flex items-baseline gap-3">
-                <span className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-                  {stats.wordOfTheDay.jp}
-                </span>
-                <span className="text-base text-gray-400 dark:text-gray-500">
-                  {stats.wordOfTheDay.en}
-                </span>
-              </div>
-              {stats.wordOfTheDay.example && (
-                <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-0.5">
-                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                    {stats.wordOfTheDay.example}
-                  </p>
-                  {stats.wordOfTheDay.exampleTranslation && (
-                    <p className="text-sm text-gray-400 dark:text-gray-500 italic">
-                      {stats.wordOfTheDay.exampleTranslation}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </Card>
-        </section>
-      )}
-
       {/* Loading skeleton */}
       {loading && (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="h-20 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
             <div className="h-20 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
             <div className="h-20 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
           </div>
           <div className="h-28 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
+function StatCard({ label, value, suffix }: { label: string; value: string | number; suffix?: string }) {
   return (
     <Card>
-      <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1">
+      <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1 truncate">
         {label}
       </p>
-      <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100">{value}</p>
+      <p className="text-3xl font-semibold text-gray-900 dark:text-gray-100">
+        {value}{suffix && <span className="ml-1 text-2xl">{suffix}</span>}
+      </p>
     </Card>
   );
 }

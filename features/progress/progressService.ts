@@ -58,9 +58,9 @@ export async function saveSessionProgress(
     updateWordProgress(existingMap.get(stats.wordId) ?? null, stats.wordId, userId, stats, now),
   );
 
-  // Upsert all in one transaction
-  await prisma.$transaction(
-    updates.map((p) =>
+  // Upsert all in one transaction, and log each answered question for streak tracking
+  await prisma.$transaction([
+    ...updates.map((p) =>
       prisma.vocabularyProgress.upsert({
         where: { userId_vocabId: { userId, vocabId: p.wordId } },
         create: {
@@ -81,7 +81,10 @@ export async function saveSessionProgress(
         },
       }),
     ),
-  );
+    prisma.practiceLog.createMany({
+      data: results.map((r) => ({ userId, correct: r.correct })),
+    }),
+  ]);
 }
 
 /**

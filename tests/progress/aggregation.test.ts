@@ -119,13 +119,13 @@ describe("updateWordProgress", () => {
     expect(result.recentSessionScores).toEqual([0.8, 0.9, 0.5]);
   });
 
-  it("caps recentSessionScores at 20", () => {
+  it("caps recentSessionScores at 10", () => {
     const existing = makeProgress({
-      recentSessionScores: Array(20).fill(1.0),
+      recentSessionScores: Array(10).fill(1.0),
     });
     const result = updateWordProgress(existing, "w1", "u1", stats, now);
-    expect(result.recentSessionScores).toHaveLength(20);
-    expect(result.recentSessionScores[19]).toBe(0.5);
+    expect(result.recentSessionScores).toHaveLength(10);
+    expect(result.recentSessionScores[9]).toBe(0.5);
     expect(result.recentSessionScores[0]).toBe(1.0);
   });
 
@@ -147,53 +147,53 @@ describe("updateWordProgress", () => {
 // ── getMastery ────────────────────────────────────────────────────────────────
 
 describe("getMastery", () => {
-  it("returns 'new' when lifetimeAttempts is 0", () => {
+  it("returns 'new' when no sessions", () => {
     expect(getMastery(makeProgress())).toBe("new");
   });
 
-  it("returns 'new' when recentSessionScores is empty", () => {
-    const p = makeProgress({ lifetimeAttempts: 5, recentSessionScores: [] });
-    expect(getMastery(p)).toBe("new");
-  });
-
-  it("returns 'learning' when recentAvg < 0.6", () => {
-    const p = makeProgress({
-      lifetimeAttempts: 6,
-      recentSessionScores: [0.4, 0.5],
-    });
+  it("returns 'learning' after 1 session even with a perfect score", () => {
+    const p = makeProgress({ recentSessionScores: [1.0] });
     expect(getMastery(p)).toBe("learning");
   });
 
-  it("returns 'familiar' when recentAvg is 0.6–0.8", () => {
-    const p = makeProgress({
-      lifetimeAttempts: 6,
-      recentSessionScores: [0.6, 0.7],
-    });
+  it("returns 'learning' after 2 sessions even with perfect scores", () => {
+    const p = makeProgress({ recentSessionScores: [1.0, 1.0] });
+    expect(getMastery(p)).toBe("learning");
+  });
+
+  it("returns 'learning' after 3 sessions when avg < 0.6", () => {
+    const p = makeProgress({ recentSessionScores: [0.3, 0.4, 0.5] });
+    expect(getMastery(p)).toBe("learning");
+  });
+
+  it("returns 'familiar' after 3 sessions with avg >= 0.6", () => {
+    const p = makeProgress({ recentSessionScores: [0.6, 0.7, 0.8] });
     expect(getMastery(p)).toBe("familiar");
   });
 
-  it("returns 'strong' when recentAvg is 0.8–0.9", () => {
-    const p = makeProgress({
-      lifetimeAttempts: 6,
-      recentSessionScores: [0.8, 0.85],
-    });
+  it("returns 'familiar' (not strong) after 4 sessions with avg >= 0.8", () => {
+    const p = makeProgress({ recentSessionScores: [0.8, 0.9, 0.85, 0.9] });
+    expect(getMastery(p)).toBe("familiar");
+  });
+
+  it("returns 'strong' after 5 sessions with avg >= 0.8", () => {
+    const p = makeProgress({ recentSessionScores: [0.8, 0.85, 0.9, 0.8, 0.85] });
     expect(getMastery(p)).toBe("strong");
   });
 
-  it("returns 'mastered' when recentAvg >= 0.9 AND lifetimeAttempts >= 10", () => {
-    const p = makeProgress({
-      lifetimeAttempts: 10,
-      recentSessionScores: [1, 1, 0.9],
-    });
+  it("returns 'strong' (not mastered) after 7 sessions with avg >= 0.9", () => {
+    const p = makeProgress({ recentSessionScores: [1, 1, 0.9, 1, 1, 0.9, 1] });
+    expect(getMastery(p)).toBe("strong");
+  });
+
+  it("returns 'mastered' after 8 sessions with avg >= 0.9", () => {
+    const p = makeProgress({ recentSessionScores: [1, 1, 0.9, 1, 1, 0.9, 1, 1] });
     expect(getMastery(p)).toBe("mastered");
   });
 
-  it("returns 'strong' (not mastered) when recentAvg >= 0.9 but lifetimeAttempts < 10", () => {
-    const p = makeProgress({
-      lifetimeAttempts: 4,
-      recentSessionScores: [1, 1, 0.95],
-    });
-    expect(getMastery(p)).toBe("strong");
+  it("returns 'learning' after 5 sessions with avg < 0.6", () => {
+    const p = makeProgress({ recentSessionScores: [0.3, 0.4, 0.5, 0.2, 0.4] });
+    expect(getMastery(p)).toBe("learning");
   });
 });
 

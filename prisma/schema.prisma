@@ -77,6 +77,8 @@ model Vocabulary {
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Sentence {
@@ -110,6 +112,8 @@ model MistakeLog {
   sentence      String
   studentAnswer String
   createdAt     DateTime @default(now())
+
+  @@index([userId])
 }
 
 model PracticeLog {
@@ -117,6 +121,8 @@ model PracticeLog {
   userId    String
   correct   Boolean
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Grammar {

@@ -1,31 +1,72 @@
 import Button from "@/components/ui/button";
 import { ProgressBar } from "./ProgressBar";
 import type { SessionQuestion, QuestionResult } from "../_types";
+import type { WordProgressSummary } from "@/app/api/progress/words/route";
+import type { MasteryState } from "@/features/progress/types";
+
+const STREAK_MIN = 10;
+
+const masteryColors: Record<MasteryState, string> = {
+  new:      "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400",
+  learning: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400",
+  familiar: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400",
+  strong:   "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
+  mastered: "bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400",
+};
+
+const masteryLabel: Record<MasteryState, string> = {
+  new:      "New",
+  learning: "Learning",
+  familiar: "Familiar",
+  strong:   "Strong",
+  mastered: "Mastered",
+};
 
 interface FinishedPhaseProps {
   session: SessionQuestion[];
   results: (QuestionResult | null)[];
+  retryCounts: Map<string, number>;
+  progressMap: Record<string, WordProgressSummary>;
+  updatedProgressMap: Record<string, WordProgressSummary> | null;
+  todayCount: number | null;
   onPracticeAgain: () => void;
+  onPracticeMistakes: (wrongWordIds: string[]) => void;
   onBackToSetup: () => void;
   t: (key: string) => string;
 }
 
-export function FinishedPhase({ session, results, onPracticeAgain, onBackToSetup, t }: FinishedPhaseProps) {
+export function FinishedPhase({
+  session, results, retryCounts, progressMap, updatedProgressMap, todayCount,
+  onPracticeAgain, onPracticeMistakes, onBackToSetup, t,
+}: FinishedPhaseProps) {
   const totalCorrect = results.filter((r) => r?.correct).length;
   const pct = Math.round((totalCorrect / Math.max(session.length, 1)) * 100);
+  const streakComplete = todayCount !== null ? todayCount >= STREAK_MIN : null;
+  const streakRemaining = todayCount !== null ? Math.max(0, STREAK_MIN - todayCount) : STREAK_MIN - session.length;
 
-  const wordSummary = (() => {
-    const map = new Map<string, { word: SessionQuestion["wordUsed"]; results: (QuestionResult | null)[] }>();
-    session.forEach((q, i) => {
-      const key = q.wordUsed.id;
-      if (!map.has(key)) map.set(key, { word: q.wordUsed, results: [] });
-      map.get(key)!.results.push(results[i] ?? null);
-    });
-    return Array.from(map.values());
-  })();
+  // Unique words in session order
+  const seenWordIds = new Set<string>();
+  const uniqueWords: SessionQuestion["wordUsed"][] = [];
+  for (const q of session) {
+    if (!seenWordIds.has(q.wordUsed.id)) {
+      seenWordIds.add(q.wordUsed.id);
+      uniqueWords.push(q.wordUsed);
+    }
+  }
+
+  // Words with a wrong final result
+  const wrongWordIds = uniqueWords
+    .filter((word) => {
+      const wordResults = session
+        .map((q, i) => q.wordUsed.id === word.id ? results[i] : null)
+        .filter(Boolean) as QuestionResult[];
+      return !(wordResults[wordResults.length - 1]?.correct ?? true);
+    })
+    .map((w) => w.id);
 
   return (
     <div className="space-y-8">
+      {/* Score */}
       <div className="text-center space-y-3">
         <p className="text-5xl font-bold text-gray-900 dark:text-gray-100">
           {totalCorrect}
@@ -37,38 +78,137 @@ export function FinishedPhase({ session, results, onPracticeAgain, onBackToSetup
         </div>
       </div>
 
+      {/* Streak banner */}
+      {streakComplete === null ? null : streakComplete ? (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800">
+          <span className="text-2xl">🔥</span>
+          <div>
+            <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">Day practice complete!</p>
+            <p className="text-xs text-orange-600 dark:text-orange-400">Your streak has been updated.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+          <span className="text-xl">🔥</span>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {streakRemaining} more {streakRemaining === 1 ? "question" : "questions"} to complete today&apos;s streak.
+          </p>
+        </div>
+      )}
+
+      {/* Sentences practiced */}
       <div>
         <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-3">
-          {t("wordBreakdown")}
+          Sentences practiced
         </p>
-        <div className="rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
-          {wordSummary.map(({ word, results: wResults }) => (
-            <div key={word.id} className="flex items-center justify-between px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{word.jp}</span>
-                <span className="text-xs text-gray-400 dark:text-gray-500">{word.en}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                {wResults.map((r, i) => (
-                  <span
-                    key={i}
-                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold ${
-                      r?.correct
-                        ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"
-                        : "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400"
-                    }`}
-                  >
+        <div className="space-y-2">
+          {session.map((q, i) => {
+            const r = results[i];
+            return (
+              <div
+                key={`${q.id}-${i}`}
+                className={`p-3 rounded-xl border text-sm ${
+                  r?.correct
+                    ? "bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-900"
+                    : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900"
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <span className={`mt-0.5 font-semibold shrink-0 ${r?.correct ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}>
                     {r?.correct ? "✓" : "✗"}
                   </span>
-                ))}
+                  <div className="flex-1 space-y-1 min-w-0">
+                    <p className="text-gray-800 dark:text-gray-200">{q.sentence}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 italic">{q.translation}</p>
+                    {r && !r.correct && (
+                      <div className="pt-1 space-y-0.5">
+                        <p className="text-xs text-red-600 dark:text-red-400">
+                          Your answer: <span className="italic">{r.answer}</span>
+                        </p>
+                        {r.feedback && (
+                          <p className="text-xs text-red-700 dark:text-red-300">{r.feedback}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      <div className="flex gap-3">
+      {/* Word status */}
+      <div>
+        <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-3">
+          Word status
+        </p>
+        <div className="rounded-lg border border-gray-100 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800">
+          {uniqueWords.map((word) => {
+            const retries = retryCounts.get(word.id) ?? 0;
+            const beforeMastery = progressMap[word.id]?.mastery ?? "new";
+            const afterMastery = updatedProgressMap?.[word.id]?.mastery ?? null;
+            const masteryChanged = afterMastery && afterMastery !== beforeMastery;
+
+            // Find final result for this word
+            const wordResults = session
+              .map((q, i) => q.wordUsed.id === word.id ? results[i] : null)
+              .filter(Boolean) as QuestionResult[];
+            const finalCorrect = wordResults[wordResults.length - 1]?.correct ?? false;
+
+            return (
+              <div key={word.id} className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{word.jp}</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500 truncate">{word.en}</span>
+                  {retries > 0 && (
+                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 shrink-0">
+                      ↻{retries}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {masteryChanged ? (
+                    <div className="flex items-center gap-1">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${masteryColors[beforeMastery]}`}>
+                        {masteryLabel[beforeMastery]}
+                      </span>
+                      <span className="text-xs text-gray-400">→</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${masteryColors[afterMastery]}`}>
+                        {masteryLabel[afterMastery]}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${masteryColors[afterMastery ?? beforeMastery]}`}>
+                      {masteryLabel[afterMastery ?? beforeMastery]}
+                    </span>
+                  )}
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
+                    finalCorrect
+                      ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400"
+                      : "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400"
+                  }`}>
+                    {finalCorrect ? "✓" : "✗"}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {!updatedProgressMap && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 animate-pulse">
+            Updating mastery…
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-3">
         <Button variant="primary" onClick={onPracticeAgain}>{t("practiceAgain")}</Button>
+        {wrongWordIds.length > 0 && (
+          <Button variant="ghost" onClick={() => onPracticeMistakes(wrongWordIds)}>
+            Practice mistakes ({wrongWordIds.length} {wrongWordIds.length === 1 ? "word" : "words"})
+          </Button>
+        )}
         <Button variant="ghost" onClick={onBackToSetup}>{t("backToSetup")}</Button>
       </div>
     </div>

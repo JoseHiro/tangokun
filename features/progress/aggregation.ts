@@ -1,6 +1,6 @@
 import type { WordProgress, QuestionResult, WordSessionStats, MasteryState } from "./types";
 
-const RECENT_SCORES_WINDOW = 20;
+const RECENT_SCORES_WINDOW = 10;
 
 // ─── Session aggregation ──────────────────────────────────────────────────────
 
@@ -78,23 +78,25 @@ export function updateWordProgress(
 /**
  * Derive a human-readable mastery state from a WordProgress record.
  *
- * Thresholds (based on recent session average):
- *   new       — never seen (lifetimeAttempts === 0)
- *   learning  — recentAvg < 0.6
- *   familiar  — 0.6 ≤ recentAvg < 0.8
- *   strong    — 0.8 ≤ recentAvg < 0.9
- *   mastered  — recentAvg ≥ 0.9 AND lifetimeAttempts ≥ 10
+ * Both the score threshold AND a minimum session count must be met to advance.
+ * This prevents a single lucky session from inflating mastery.
+ *
+ *   new       — never practiced
+ *   learning  — fewer than 3 sessions (not enough data yet, regardless of score)
+ *   familiar  — ≥ 3 sessions AND recentAvg ≥ 0.60
+ *   strong    — ≥ 5 sessions AND recentAvg ≥ 0.80
+ *   mastered  — ≥ 8 sessions AND recentAvg ≥ 0.90
  */
 export function getMastery(progress: WordProgress): MasteryState {
-  if (progress.lifetimeAttempts === 0 || progress.recentSessionScores.length === 0) {
-    return "new";
-  }
+  const sessions = progress.recentSessionScores.length;
 
-  const scores = progress.recentSessionScores;
-  const recentAvg = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+  if (sessions === 0) return "new";
+  if (sessions < 3) return "learning";
 
-  if (recentAvg >= 0.9 && progress.lifetimeAttempts >= 10) return "mastered";
-  if (recentAvg >= 0.8) return "strong";
+  const recentAvg = progress.recentSessionScores.reduce((sum, s) => sum + s, 0) / sessions;
+
+  if (sessions >= 8 && recentAvg >= 0.9) return "mastered";
+  if (sessions >= 5 && recentAvg >= 0.8) return "strong";
   if (recentAvg >= 0.6) return "familiar";
   return "learning";
 }

@@ -6,11 +6,13 @@ import Card from "@/components/ui/card";
 import { inputClassName } from "@/components/ui/input";
 import AudioWaveform from "@/components/AudioWaveform";
 import { ProgressBar } from "./ProgressBar";
-import type { SessionQuestion, QuestionResult, InputMode } from "../_types";
+import type { SessionQuestion, QuestionResult, InputMode, SupportingWord } from "../_types";
 
 interface PracticingPhaseProps {
-  session: SessionQuestion[];
-  currentIdx: number;
+  currentQuestion: SessionQuestion;
+  isRetry: boolean;
+  queuePos: number;
+  queueLength: number;
   audioUrls: Map<string, string>;
   currentJudge: QuestionResult | null;
   judging: boolean;
@@ -23,10 +25,12 @@ interface PracticingPhaseProps {
   setShowHint: (v: boolean) => void;
   showSentence: boolean;
   setShowSentence: (v: boolean) => void;
+  activeHintWord: SupportingWord | null;
+  setActiveHintWord: (w: SupportingWord | null) => void;
   onShowSessionInfo: () => void;
   isEnToJp: boolean;
+  isLastQuestion: boolean;
   onNext: () => void;
-  onBackToSetup: () => void;
   handleJudge: (ans: string) => void;
   handleTextSubmit: (e: React.SyntheticEvent) => void;
   handleRecordStart: () => void;
@@ -35,20 +39,18 @@ interface PracticingPhaseProps {
 }
 
 export function PracticingPhase({
-  session, currentIdx, audioUrls,
+  currentQuestion, isRetry, queuePos, queueLength, audioUrls,
   currentJudge, judging,
   answer, setAnswer, inputMode, setInputMode, isRecording,
-  showHint, setShowHint, showSentence, setShowSentence,
-  onShowSessionInfo, isEnToJp,
-  onNext, onBackToSetup,
+  showHint, setShowHint, showSentence, setShowSentence, activeHintWord, setActiveHintWord,
+  onShowSessionInfo, isEnToJp, isLastQuestion,
+  onNext,
   handleJudge, handleTextSubmit, handleRecordStart, handleRecordEnd,
   t,
 }: PracticingPhaseProps) {
-  const currentQ = session[currentIdx];
-  const currentAudio = currentQ ? (audioUrls.get(currentQ.id) ?? null) : null;
-  const promptText = currentQ
-    ? isEnToJp ? currentQ.translation : currentQ.sentence
-    : "";
+  const currentQ = currentQuestion;
+  const currentAudio = audioUrls.get(currentQ.id) ?? null;
+  const promptText = isEnToJp ? currentQ.translation : currentQ.sentence;
 
   // Hold Enter to record
   useEffect(() => {
@@ -83,15 +85,18 @@ export function PracticingPhase({
     return () => document.removeEventListener("keydown", onKey);
   }, [currentJudge]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!currentQ) return null;
-
   return (
     <div className="flex flex-col gap-5 min-h-[60vh]">
       {/* Progress header */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-xs text-gray-400 dark:text-gray-500">
-          <span>
-            {t("questionLabel")} {currentIdx + 1} / {session.length}
+          <span className="flex items-center gap-2">
+            {t("questionLabel")} {queuePos + 1} / {queueLength}
+            {isRetry && (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+                ↻ {t("retry")}
+              </span>
+            )}
           </span>
           <button
             onClick={onShowSessionInfo}
@@ -103,7 +108,7 @@ export function PracticingPhase({
             Session info
           </button>
         </div>
-        <ProgressBar value={currentIdx + (currentJudge ? 1 : 0)} total={session.length} />
+        <ProgressBar value={queuePos + (currentJudge ? 1 : 0)} total={queueLength} />
       </div>
 
       {/* Question card */}
@@ -122,7 +127,58 @@ export function PracticingPhase({
         {showSentence || currentJudge ? (
           <div className="mb-3">
             <div className="flex items-start justify-between gap-2">
-              <p className="text-2xl text-gray-900 dark:text-gray-100 leading-relaxed">{promptText}</p>
+              <p className="text-2xl text-gray-900 dark:text-gray-100 leading-relaxed">
+                {(() => {
+                  // Build list of all annotated words (target + supporting)
+                  const targetWord: SupportingWord = {
+                    word: currentQ.wordInSentence,
+                    reading: currentQ.furigana,
+                    meaning: currentQ.wordUsed.en,
+                  };
+                  const allWords: { annotation: SupportingWord; isTarget: boolean }[] = [
+                    { annotation: targetWord, isTarget: true },
+                    ...(currentQ.supportingWords ?? []).map((sw) => ({ annotation: sw, isTarget: false })),
+                  ];
+
+                  // Find positions in text
+                  type Segment = { text: string; annotation: SupportingWord | null; isTarget: boolean };
+                  const matches: { start: number; end: number; annotation: SupportingWord; isTarget: boolean }[] = [];
+                  for (const { annotation, isTarget } of allWords) {
+                    const idx = annotation.word ? promptText.indexOf(annotation.word) : -1;
+                    if (idx !== -1) matches.push({ start: idx, end: idx + annotation.word.length, annotation, isTarget });
+                  }
+                  matches.sort((a, b) => a.start - b.start);
+
+                  const segments: Segment[] = [];
+                  let pos = 0;
+                  for (const m of matches) {
+                    if (m.start > pos) segments.push({ text: promptText.slice(pos, m.start), annotation: null, isTarget: false });
+                    segments.push({ text: promptText.slice(m.start, m.end), annotation: m.annotation, isTarget: m.isTarget });
+                    pos = m.end;
+                  }
+                  if (pos < promptText.length) segments.push({ text: promptText.slice(pos), annotation: null, isTarget: false });
+
+                  if (segments.length === 0) return promptText;
+
+                  return segments.map((seg, i) => {
+                    if (!seg.annotation) return <span key={i}>{seg.text}</span>;
+                    const isActive = activeHintWord?.word === seg.annotation.word;
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => !currentJudge && setActiveHintWord(isActive ? null : seg.annotation)}
+                        className={`underline underline-offset-4 decoration-dotted text-gray-900 dark:text-gray-100 cursor-pointer ${
+                          seg.isTarget
+                            ? "decoration-violet-400 dark:decoration-violet-500"
+                            : "decoration-gray-400 dark:decoration-gray-500"
+                        }`}
+                      >
+                        {seg.text}
+                      </button>
+                    );
+                  });
+                })()}
+              </p>
               {!currentJudge && (
                 <button
                   onClick={() => { setShowSentence(false); setShowHint(false); }}
@@ -132,6 +188,15 @@ export function PracticingPhase({
                 </button>
               )}
             </div>
+            {activeHintWord && !currentJudge && (
+              <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
+                <span className="text-xs text-violet-500 dark:text-violet-400">💡</span>
+                <span className="text-sm font-medium text-violet-700 dark:text-violet-300">{activeHintWord.word}</span>
+                <span className="text-xs text-violet-500 dark:text-violet-400">{activeHintWord.reading}</span>
+                <span className="text-xs text-violet-400 dark:text-violet-500">—</span>
+                <span className="text-sm text-violet-600 dark:text-violet-400">{activeHintWord.meaning}</span>
+              </div>
+            )}
             {!isEnToJp &&
               (showHint ? (
                 <div className="flex items-center gap-2 mt-1">
@@ -242,10 +307,6 @@ export function PracticingPhase({
                 )}
               </p>
               <div className="flex items-center gap-3">
-                <Button variant="ghost" className="text-xs px-2 py-1" onClick={onBackToSetup}>
-                  {t("backToSetup")}
-                </Button>
-                <span className="text-gray-300 dark:text-gray-700">|</span>
                 <button
                   onClick={() => setInputMode("text")}
                   className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
@@ -273,9 +334,6 @@ export function PracticingPhase({
                 <Button type="submit" variant="primary" disabled={judging || !answer.trim()}>
                   {judging ? t("checking") : t("checkAnswer")}
                 </Button>
-                <Button type="button" variant="ghost" onClick={onBackToSetup}>
-                  {t("backToSetup")}
-                </Button>
                 <button
                   type="button"
                   onClick={() => setInputMode("voice")}
@@ -289,7 +347,7 @@ export function PracticingPhase({
         ) : (
           <div className="flex items-center gap-3">
             <Button variant="primary" onClick={onNext}>
-              {currentIdx + 1 >= session.length ? t("sessionComplete") : `${t("next")} →`}
+              {isLastQuestion ? t("sessionComplete") : `${t("next")} →`}
             </Button>
             <p className="text-xs text-gray-400 dark:text-gray-500 select-none">Press Space or Enter</p>
           </div>

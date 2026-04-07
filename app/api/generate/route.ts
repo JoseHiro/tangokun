@@ -6,6 +6,62 @@ import { auth } from "@/auth";
 export type UsedWord = { id: string; jp: string; en: string };
 export type Direction = "jp-to-en" | "en-to-jp";
 
+const SCENARIOS = [
+  "at school or university",
+  "at work or the office",
+  "at home with family",
+  "with friends on the weekend",
+  "at a restaurant or café",
+  "while traveling or on a trip",
+  "at a hospital or clinic",
+  "during a sports event or exercise",
+  "while shopping",
+  "in the morning routine",
+  "late at night",
+  "during a phone or video call",
+  "at a station or on a train",
+  "at a park or outdoors",
+  "during a celebration or party",
+  "while cooking or eating",
+  "during bad weather",
+  "at a convenience store",
+];
+
+const SUBJECTS = [
+  "I (私)",
+  "my friend (友達)",
+  "my older sister (姉)",
+  "my younger brother (弟)",
+  "my mother (お母さん)",
+  "my father (お父さん)",
+  "a classmate (クラスメート)",
+  "a colleague (同僚)",
+  "we (私たち)",
+  "the teacher (先生)",
+  "a stranger (知らない人)",
+];
+
+const STRUCTURES = [
+  "simple present or past",
+  "with a reason or because-clause (〜から・〜ので)",
+  "with a time expression (e.g. yesterday, last week, every morning)",
+  "as a question",
+  "expressing desire or intention (〜たい・〜つもり)",
+  "expressing possibility or uncertainty (〜かもしれない・〜と思う)",
+  "in casual/plain speech style",
+  "in polite/ます speech style",
+  "with a contrast or concession (〜けど・〜が)",
+  "expressing a request or suggestion (〜てください・〜ましょう)",
+];
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function randomContext(): string {
+  return `Scenario: ${pick(SCENARIOS)}\nSubject: ${pick(SUBJECTS)}\nSentence structure: ${pick(STRUCTURES)}`;
+}
+
 /** Pick `n` random elements from an array without repetition. */
 function sample<T>(arr: T[], n: number): T[] {
   const copy = [...arr];
@@ -24,11 +80,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = session.user.id;
-
+  
   const body = await req.json().catch(() => ({}));
   const force: boolean = body.force === true;
   const direction: Direction = body.direction ?? "jp-to-en";
   const vocabIds: string[] = Array.isArray(body.vocabIds) ? body.vocabIds : [];
+  console.log("vocabIds", vocabIds);
   const grammarIds: string[] = Array.isArray(body.grammarIds) ? body.grammarIds : [];
 
   // Pick a random grammar pattern if any selected
@@ -105,7 +162,9 @@ Return a JSON object with exactly these fields:
           {
             role: "user",
             content: `Grammar pattern: ${grammar!.pattern} (${grammar!.meaning})
-${grammar!.example ? `Example usage: ${grammar!.example}` : ""}`,
+${grammar!.example ? `Example usage: ${grammar!.example}` : ""}
+
+${randomContext()}`,
           },
         ],
         response_format: { type: "json_object" },
@@ -139,16 +198,18 @@ ${grammar!.example ? `Example usage: ${grammar!.example}` : ""}`,
   const wordCount = Math.min(allWords.length, 1 + Math.floor(Math.random() * 2));
   const chosenWords = sample<UsedWord>(allWords, wordCount);
   const vocabList = chosenWords.map((w) => `${w.jp} (${w.en})`).join("\n");
+  const context = randomContext();
 
   let systemPrompt: string;
   let userPrompt: string;
 
   if (hasGrammar) {
-    systemPrompt = `You are a Japanese language teacher.
-Create a simple, natural Japanese sentence that uses BOTH the grammar pattern AND as many vocabulary words as possible.
+    systemPrompt = `You are a Japanese language teacher creating varied practice sentences.
+Create a natural Japanese sentence that uses BOTH the grammar pattern AND the vocabulary words.
 Rules:
-- The sentence must clearly demonstrate the grammar pattern.
-- Use as many of the listed vocabulary words as possible.
+- Must clearly demonstrate the grammar pattern.
+- Use as many vocabulary words as possible.
+- Follow the scenario, subject, and sentence structure exactly — these are chosen to ensure variety across sessions.
 - Beginner-to-intermediate level.
 Return a JSON object with exactly these fields:
   sentence    — the Japanese sentence
@@ -157,19 +218,23 @@ Return a JSON object with exactly these fields:
     userPrompt = `Grammar pattern: ${grammar!.pattern} (${grammar!.meaning})
 ${grammar!.example ? `Example usage: ${grammar!.example}` : ""}
 
-Vocabulary:\n${vocabList}`;
+Vocabulary:\n${vocabList}
+
+${context}`;
   } else {
-    systemPrompt = `You are a Japanese language teacher.
-Create a simple, natural Japanese sentence using ONLY the vocabulary words provided.
+    systemPrompt = `You are a Japanese language teacher creating varied practice sentences.
+Create a natural Japanese sentence using the vocabulary words provided.
 Rules:
 - Use as many of the listed words as possible.
-- The sentence should be beginner-to-intermediate level.
-- Add common grammar particles and basic verbs (は、が、を、に、です、ます etc.) as needed.
+- Strictly follow the scenario, subject, and sentence structure provided — do NOT default to the most common or stereotypical usage of the word.
+- Avoid the most predictable object or context for the given verb (e.g. don't always use 本 for 読む, don't always use ご飯 for 食べる).
+- Beginner-to-intermediate level.
+- Add grammar particles and helper verbs as needed.
 Return a JSON object with exactly these fields:
   sentence    — the Japanese sentence
   translation — natural English translation
   furigana    — full hiragana/furigana reading of the sentence`;
-    userPrompt = `Vocabulary:\n${vocabList}`;
+    userPrompt = `Vocabulary:\n${vocabList}\n\n${context}`;
   }
 
   const completion = await openai.chat.completions.create({

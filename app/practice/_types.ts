@@ -1,5 +1,4 @@
 export type Direction = "jp-to-en" | "en-to-jp";
-export type GrammarTab = "jlpt" | "genki";
 export type Phase = "setup" | "loading" | "practicing" | "finished";
 export type InputMode = "voice" | "text";
 export type LoadingStep = "questions" | "audio";
@@ -14,11 +13,19 @@ export type GrammarItem = {
   source: string | null;
 };
 
+export type SupportingWord = {
+  word: string;
+  reading: string;
+  meaning: string;
+};
+
 export type SessionQuestion = {
   id: string;
   sentence: string;
   translation: string;
   furigana: string;
+  wordInSentence: string;
+  supportingWords: SupportingWord[];
   wordUsed: VocabWord;
   grammarUsed: { pattern: string; meaning: string } | null;
 };

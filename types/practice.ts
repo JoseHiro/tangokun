@@ -18,11 +18,19 @@ export type QuestionSlot = {
   grammar: GrammarPattern | null;
 };
 
+export type SupportingWord = {
+  word: string;
+  reading: string;
+  meaning: string;
+};
+
 export type SessionQuestion = {
   id: string;
   sentence: string;
   translation: string;
   furigana: string;
+  wordInSentence: string; // exact surface form of the vocabulary word as it appears in the sentence
+  supportingWords: SupportingWord[];
   wordUsed: VocabWord;
   grammarUsed: { pattern: string; meaning: string } | null;
 };

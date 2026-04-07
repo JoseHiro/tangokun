@@ -7,7 +7,6 @@ interface StartArgs {
   direction: Direction;
   selectedVocabIds: Set<string>;
   selectedGrammarIds: Set<string>;
-  allVocabLength: number;
 }
 
 export function useSession() {
@@ -43,7 +42,6 @@ export function useSession() {
     direction,
     selectedVocabIds,
     selectedGrammarIds,
-    allVocabLength,
   }: StartArgs): Promise<SessionQuestion[] | null> {
     if (selectedVocabIds.size === 0) {
       setError("Select at least one vocabulary word.");
@@ -55,10 +53,7 @@ export function useSession() {
     setError("");
     revokeAllAudio();
 
-    const vocabIds =
-      selectedVocabIds.size === allVocabLength
-        ? []
-        : Array.from(selectedVocabIds);
+    const vocabIds = Array.from(selectedVocabIds);
 
     const res = await fetch("/api/practice/session", {
       method: "POST",

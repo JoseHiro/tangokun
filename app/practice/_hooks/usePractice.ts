@@ -1,11 +1,23 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import type { InputMode, SessionQuestion, QuestionResult, Direction } from "../_types";
+import type { InputMode, SessionQuestion, QuestionResult, Direction, SupportingWord } from "../_types";
 
-export function usePractice(session: SessionQuestion[], direction: Direction) {
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [results, setResults] = useState<(QuestionResult | null)[]>([]);
+const MAX_RETRIES = 1; // each wrong answer gets one more chance
+
+interface QueueItem {
+  question: SessionQuestion;
+  originalId: string; // id of the first appearance of this question
+  isRetry: boolean;
+}
+
+export function usePractice(direction: Direction) {
+  const [originalSession, setOriginalSession] = useState<SessionQuestion[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [queuePos, setQueuePos] = useState(0);
+  const [retryCounts, setRetryCounts] = useState<Map<string, number>>(new Map());
+  const [resultMap, setResultMap] = useState<Map<string, QuestionResult>>(new Map());
+
   const [currentJudge, setCurrentJudge] = useState<QuestionResult | null>(null);
   const [judging, setJudging] = useState(false);
   const [answer, setAnswer] = useState("");
@@ -13,38 +25,87 @@ export function usePractice(session: SessionQuestion[], direction: Direction) {
   const [isRecording, setIsRecording] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const [showSentence, setShowSentence] = useState(false);
+  const [activeHintWord, setActiveHintWord] = useState<SupportingWord | null>(null);
   const [showSessionInfo, setShowSessionInfo] = useState(false);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
 
-  function reset(totalQuestions = 0) {
+  const currentItem = queue[queuePos] ?? null;
+  const currentQuestion = currentItem?.question ?? null;
+  const isRetry = currentItem?.isRetry ?? false;
+  const queueLength = queue.length;
+
+  // True when pressing Next will end the session (no retry will be added after this)
+  const retryWillBeAdded =
+    currentJudge !== null &&
+    !currentJudge.correct &&
+    (retryCounts.get(currentItem?.originalId ?? "") ?? 0) < MAX_RETRIES;
+
+  const isLastQuestion =
+    queueLength > 0 && queuePos + 1 >= queueLength && !retryWillBeAdded;
+
+  function reset(session: SessionQuestion[]) {
     recognitionRef.current?.stop();
     setIsRecording(false);
-    setCurrentIdx(0);
-    setResults(new Array(totalQuestions).fill(null));
+    setOriginalSession(session);
+    setQueue(session.map((q) => ({ question: q, originalId: q.id, isRetry: false })));
+    setQueuePos(0);
+    setRetryCounts(new Map());
+    setResultMap(new Map());
     setCurrentJudge(null);
     setAnswer("");
     setShowHint(false);
     setShowSentence(false);
+    setActiveHintWord(null);
     setInputMode("voice");
   }
 
   function advance() {
-    setCurrentIdx((i) => i + 1);
+    if (currentJudge && currentItem) {
+      // Always record the latest attempt result for this original question
+      setResultMap((prev) => new Map(prev).set(currentItem.originalId, currentJudge));
+
+      // Re-queue if wrong and under retry limit
+      if (!currentJudge.correct) {
+        const count = retryCounts.get(currentItem.originalId) ?? 0;
+        if (count < MAX_RETRIES) {
+          setQueue((prev) => [
+            ...prev,
+            { question: currentItem.question, originalId: currentItem.originalId, isRetry: true },
+          ]);
+          setRetryCounts((prev) => {
+            const next = new Map(prev);
+            next.set(currentItem.originalId, count + 1);
+            return next;
+          });
+        }
+      }
+    }
+
+    setQueuePos((prev) => prev + 1);
     setCurrentJudge(null);
     setAnswer("");
     setShowHint(false);
     setShowSentence(false);
-    setInputMode("voice");
+    setActiveHintWord(null);
     recognitionRef.current?.stop();
     setIsRecording(false);
   }
 
+  /** Returns results aligned to the original session for progress saving + FinishedPhase.
+   *  Includes the current pending judge so the last question is never missed. */
+  function getSessionResults(): (QuestionResult | null)[] {
+    const map = new Map(resultMap);
+    if (currentJudge && currentItem) {
+      map.set(currentItem.originalId, currentJudge);
+    }
+    return originalSession.map((q) => map.get(q.id) ?? null);
+  }
+
   const handleJudge = useCallback(
     async (ans: string) => {
-      const q = session[currentIdx];
-      if (!q || !ans.trim() || judging || currentJudge) return;
+      if (!currentQuestion || !ans.trim() || judging || currentJudge) return;
 
       setAnswer(ans);
       setJudging(true);
@@ -53,9 +114,9 @@ export function usePractice(session: SessionQuestion[], direction: Direction) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sentence: q.sentence,
+          sentence: currentQuestion.sentence,
           userAnswer: ans.trim(),
-          expectedTranslation: q.translation,
+          expectedTranslation: currentQuestion.translation,
           direction,
         }),
       });
@@ -69,14 +130,15 @@ export function usePractice(session: SessionQuestion[], direction: Direction) {
       };
 
       setCurrentJudge(result);
-      setResults((prev) => {
-        const next = [...prev];
-        next[currentIdx] = result;
-        return next;
-      });
       setJudging(false);
+
+      const audio = new Audio(result.correct
+        ? "/mp3/Short_soft_bell_chim_%231-1774009349360.mp3"
+        : "/mp3/Duolingo_like_wrong,_quiz__%231-1774009512701.mp3"
+      );
+      audio.play().catch(() => {});
     },
-    [session, currentIdx, judging, currentJudge, direction],
+    [currentQuestion, judging, currentJudge, direction],
   );
 
   function handleRecordStart() {
@@ -108,8 +170,13 @@ export function usePractice(session: SessionQuestion[], direction: Direction) {
   }
 
   return {
-    currentIdx,
-    results,
+    currentQuestion,
+    isRetry,
+    isLastQuestion,
+    queuePos,
+    queueLength,
+    originalSessionLength: originalSession.length,
+    retryCounts,
     currentJudge,
     judging,
     answer, setAnswer,
@@ -117,9 +184,11 @@ export function usePractice(session: SessionQuestion[], direction: Direction) {
     isRecording,
     showHint, setShowHint,
     showSentence, setShowSentence,
+    activeHintWord, setActiveHintWord,
     showSessionInfo, setShowSessionInfo,
     reset,
     advance,
+    getSessionResults,
     handleJudge,
     handleRecordStart,
     handleRecordEnd,

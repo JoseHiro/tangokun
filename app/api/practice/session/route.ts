@@ -12,6 +12,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const vocabIds: string[] = Array.isArray(body.vocabIds) ? body.vocabIds : [];
   const grammarIds: string[] = Array.isArray(body.grammarIds) ? body.grammarIds : [];
+  console.log("vocabIds", vocabIds);
+  console.log("grammarIds", grammarIds);
   const direction: Direction = body.direction ?? "jp-to-en";
 
   try {

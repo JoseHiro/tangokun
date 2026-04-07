@@ -1,11 +1,58 @@
 import { openai } from "@/lib/openai";
 import type { VocabWord, GrammarPattern } from "@/types/practice";
 
+export type SupportingWord = {
+  word: string;
+  reading: string;
+  meaning: string;
+};
+
 export type GeneratedSentence = {
   sentence: string;
   translation: string;
   furigana: string;
+  wordInSentence: string;
+  supportingWords: SupportingWord[];
 };
+
+const SCENARIOS = [
+  "学校・大学で",
+  "職場・オフィスで",
+  "家族と家で",
+  "週末に友達と",
+  "レストランやカフェで",
+  "旅行中・出張中に",
+  "病院やクリニックで",
+  "スポーツや運動中に",
+  "買い物中に",
+  "朝のルーティンで",
+  "深夜に",
+  "電話やビデオ通話中に",
+  "駅や電車の中で",
+  "公園や屋外で",
+  "お祝いやパーティーで",
+  "料理中や食事中に",
+  "悪天候の日に",
+  "コンビニで",
+];
+
+const SUBJECTS = [
+  "私（一人称）",
+  "友達",
+  "姉",
+  "弟",
+  "お母さん",
+  "お父さん",
+  "クラスメート",
+  "同僚",
+  "私たち（複数）",
+  "先生",
+  "知らない人",
+];
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 /**
  * Calls OpenAI to generate a single Japanese sentence for the given vocab word
@@ -15,30 +62,46 @@ export type GeneratedSentence = {
  */
 export async function generateSentence(
   word: VocabWord,
-  grammar: GrammarPattern | null
+  grammar: GrammarPattern | null,
+  knownWords: VocabWord[] = [],
 ): Promise<GeneratedSentence> {
+  const scenario = pick(SCENARIOS);
+  const subject = pick(SUBJECTS);
+
   const systemPrompt = [
-    "You are a Japanese language teacher.",
-    "Create one simple, natural Japanese sentence using the given vocabulary word.",
-    "Rules:",
-    "- Beginner-to-intermediate level.",
-    "- The vocabulary word must appear in the sentence.",
+    "あなたは日本語教師です。学習者のために、バリエーション豊かな練習文を一文作成してください。",
+    "ルール：",
+    "- 初級〜中級レベルの自然な日本語にすること。",
+    "- 指定された単語を必ず文中に使うこと。",
+    "- シナリオと主語は参考にするが、不自然な日本語になる場合は調整してよい。",
+    "- 文法的に自然な文にすること。例えば「私は〜ましょう」のように主語と文末表現が合わない組み合わせは避けること。",
+    "- ましょう・てください・ませんかなど、勧誘・依頼・提案の表現を使う場合は、主語を省略するか複数形にすること。",
+    "- 最もよく使われる典型的な文（例：食べる→ご飯を食べる、読む→本を読む、寝る→毎晩寝る）は避け、文脈に合った自然な使い方をすること。",
+    "- 指定単語以外に使う語彙は、「既知単語リスト」に含まれる単語か、JLPT N5レベルの極めて基本的な単語（私・今日・行く・来る・見る・大きい・小さい・好き・学校・家など）のみに限定すること。リストにない難しい単語は絶対に使わないこと。",
     grammar
-      ? `- The sentence must clearly demonstrate the grammar pattern: ${grammar.pattern} (${grammar.meaning}).`
+      ? `- 文法パターン「${grammar.pattern}（${grammar.meaning}）」を文中で明確に使うこと。`
       : "",
-    "Return a JSON object with exactly these fields:",
-    "  sentence    — the Japanese sentence",
-    "  translation — natural English translation",
-    "  furigana    — full hiragana/furigana reading of the sentence",
+    "以下のフィールドを含むJSONオブジェクトを返してください：",
+    "  sentence       — 日本語の文",
+    "  translation    — 自然な英語訳",
+    "  furigana       — 文全体のひらがな読み",
+    "  wordInSentence — 文中に実際に登場する単語の表層形（活用形のまま）。例：単語が「食べる」なら文中の「食べました」や「食べて」など",
+    "  supportingWords — 文中で使った主要な単語（指定単語を除く）の配列。最大5個。各要素は { word: 表層形, reading: ひらがな読み, meaning: 英語の意味 } の形式。",
   ]
     .filter(Boolean)
     .join("\n");
 
+  const contextBlock = `シナリオ：${scenario}\n主語の参考：${subject}`;
+
+  const knownWordsBlock = knownWords.length > 0
+    ? `\n既知単語リスト（これらの単語は文中で使ってよい）：\n${knownWords.map((w) => `${w.jp}（${w.en}）`).join("、")}`
+    : "";
+
   const userPrompt = grammar
-    ? `Vocabulary: ${word.jp} (${word.en})\nGrammar: ${grammar.pattern} (${grammar.meaning})${
-        grammar.example ? `\nExample: ${grammar.example}` : ""
-      }`
-    : `Vocabulary: ${word.jp} (${word.en})`;
+    ? `単語：${word.jp}（${word.en}）\n文法：${grammar.pattern}（${grammar.meaning}）${
+        grammar.example ? `\n例文：${grammar.example}` : ""
+      }\n\n${contextBlock}${knownWordsBlock}`
+    : `単語：${word.jp}（${word.en}）\n\n${contextBlock}${knownWordsBlock}`;
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -54,5 +117,7 @@ export async function generateSentence(
     sentence: result.sentence ?? "",
     translation: result.translation ?? "",
     furigana: result.furigana ?? "",
+    wordInSentence: result.wordInSentence ?? word.jp,
+    supportingWords: Array.isArray(result.supportingWords) ? result.supportingWords : [],
   };
 }

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { User, Shield, Database } from "lucide-react";
+import { User, Shield, Database, BookOpen } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/settings/profile", label: "Profile", Icon: User },
   { href: "/settings/account", label: "Account", Icon: Shield },
+  { href: "/settings/learning", label: "Learning", Icon: BookOpen },
   { href: "/settings/data", label: "Data", Icon: Database },
 ];
 

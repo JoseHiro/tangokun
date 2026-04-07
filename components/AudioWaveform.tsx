@@ -35,9 +35,9 @@ export default function AudioWaveform({ audioUrl, autoPlay = false }: AudioWavef
       interact: true,
     });
 
-    ws.load(audioUrl);
+    ws.load(audioUrl).catch(() => {}); // absorb AbortError from load() when destroyed while loading
 
-    ws.on("error", () => {}); // absorb AbortError fired when destroyed while loading
+    ws.on("error", () => {});
 
     ws.on("ready", () => {
       setIsReady(true);

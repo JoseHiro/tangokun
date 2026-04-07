@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { saveSessionProgress } from "@/features/progress/progressService";
 import type { QuestionResult } from "@/features/progress/types";
 
@@ -16,6 +17,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "results is required" }, { status: 400 });
   }
 
-  await saveSessionProgress(session.user.id, results);
-  return NextResponse.json({ ok: true });
+  const userId = session.user.id;
+  await saveSessionProgress(userId, results);
+
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const todayCount = await prisma.practiceLog.count({
+    where: { userId, createdAt: { gte: todayStart } },
+  });
+
+  return NextResponse.json({ ok: true, todayCount });
 }

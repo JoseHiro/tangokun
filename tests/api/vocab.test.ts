@@ -7,9 +7,17 @@ vi.mock("@/lib/prisma", () => ({
     vocabulary: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
+      count: vi.fn(),
       create: vi.fn(),
       findUnique: vi.fn(),
       delete: vi.fn(),
+      deleteMany: vi.fn(),
+    },
+    vocabularyProgress: {
+      findMany: vi.fn(),
+    },
+    deck: {
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -18,12 +26,19 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { GET, POST, DELETE } from "@/app/api/vocab/route";
 
+function getReq(query = "") {
+  return new NextRequest(`http://localhost/api/vocab${query ? `?${query}` : ""}`, { method: "GET" });
+}
+
 const mockAuth = vi.mocked(auth);
 const mockFindMany = vi.mocked(prisma.vocabulary.findMany);
+const mockCount = vi.mocked(prisma.vocabulary.count);
 const mockFindFirst = vi.mocked(prisma.vocabulary.findFirst);
 const mockCreate = vi.mocked(prisma.vocabulary.create);
 const mockFindUnique = vi.mocked(prisma.vocabulary.findUnique);
 const mockDelete = vi.mocked(prisma.vocabulary.delete);
+const mockDeleteMany = vi.mocked(prisma.vocabulary.deleteMany);
+const mockProgressFindMany = vi.mocked(prisma.vocabularyProgress.findMany);
 
 function authed(id = "user1") {
   mockAuth.mockResolvedValue({ user: { id } } as never);
@@ -67,35 +82,43 @@ beforeEach(() => {
 describe("GET /api/vocab", () => {
   it("returns 401 when unauthenticated", async () => {
     mockAuth.mockResolvedValue(null);
-    const res = await GET();
+    const res = await GET(getReq());
     expect(res.status).toBe(401);
   });
 
-  it("returns the user's vocabulary list", async () => {
+  it("returns paginated words and total", async () => {
     authed("user1");
     const words = [makeWord({ id: "w1" }), makeWord({ id: "w2" })];
     mockFindMany.mockResolvedValue(words as never);
-    const res = await GET();
+    mockCount.mockResolvedValue(2 as never);
+    mockProgressFindMany.mockResolvedValue([] as never);
+    const res = await GET(getReq());
     const data = await res.json();
     expect(res.status).toBe(200);
-    expect(data).toHaveLength(2);
+    expect(data.words).toHaveLength(2);
+    expect(data.total).toBe(2);
   });
 
   it("queries only the authenticated user's words", async () => {
     authed("user42");
     mockFindMany.mockResolvedValue([]);
-    await GET();
+    mockCount.mockResolvedValue(0 as never);
+    mockProgressFindMany.mockResolvedValue([] as never);
+    await GET(getReq());
     expect(mockFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: "user42" } })
+      expect.objectContaining({ where: expect.objectContaining({ userId: "user42" }) })
     );
   });
 
-  it("returns empty array when user has no words", async () => {
+  it("returns empty words when user has none", async () => {
     authed();
     mockFindMany.mockResolvedValue([]);
-    const res = await GET();
+    mockCount.mockResolvedValue(0 as never);
+    mockProgressFindMany.mockResolvedValue([] as never);
+    const res = await GET(getReq());
     const data = await res.json();
-    expect(data).toEqual([]);
+    expect(data.words).toEqual([]);
+    expect(data.total).toBe(0);
   });
 });
 
@@ -174,35 +197,48 @@ describe("DELETE /api/vocab", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns 404 when word does not exist", async () => {
+  it("returns 404 when word does not exist (single id)", async () => {
     authed();
-    mockFindUnique.mockResolvedValue(null);
+    mockDeleteMany.mockResolvedValue({ count: 0 });
     const res = await DELETE(deleteReq({ id: "unknown" }));
     expect(res.status).toBe(404);
   });
 
-  it("returns 404 when word belongs to a different user", async () => {
+  it("returns 404 when single id does not belong to user", async () => {
     authed("user1");
-    mockFindUnique.mockResolvedValue(makeWord({ userId: "user2" }) as never);
+    mockDeleteMany.mockResolvedValue({ count: 0 });
     const res = await DELETE(deleteReq({ id: "word1" }));
     expect(res.status).toBe(404);
   });
 
   it("deletes the word and returns success", async () => {
     authed("user1");
-    mockFindUnique.mockResolvedValue(makeWord({ userId: "user1" }) as never);
-    mockDelete.mockResolvedValue(makeWord() as never);
+    mockDeleteMany.mockResolvedValue({ count: 1 });
     const res = await DELETE(deleteReq({ id: "word1" }));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.success).toBe(true);
+    expect(data.deleted).toBe(1);
   });
 
-  it("only deletes the authenticated user's own word", async () => {
+  it("deleteMany scopes to authenticated user", async () => {
     authed("user1");
-    mockFindUnique.mockResolvedValue(makeWord({ id: "word1", userId: "user1" }) as never);
-    mockDelete.mockResolvedValue(makeWord() as never);
+    mockDeleteMany.mockResolvedValue({ count: 1 });
     await DELETE(deleteReq({ id: "word1" }));
-    expect(mockDelete).toHaveBeenCalledWith({ where: { id: "word1" } });
+    expect(mockDeleteMany).toHaveBeenCalledWith({
+      where: { userId: "user1", id: { in: ["word1"] } },
+    });
+  });
+
+  it("deletes multiple ids in one request", async () => {
+    authed("user1");
+    mockDeleteMany.mockResolvedValue({ count: 2 });
+    const res = await DELETE(deleteReq({ ids: ["a", "b", "a"] }));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.deleted).toBe(2);
+    expect(mockDeleteMany).toHaveBeenCalledWith({
+      where: { userId: "user1", id: { in: ["a", "b"] } },
+    });
   });
 });

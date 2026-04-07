@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
-import { Upload, Pencil, Trash2, Plus, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Upload, Pencil, Trash2, Plus, Search, X, ChevronLeft, ChevronRight, CircleHelp } from "lucide-react";
 import { useLanguage } from "@/lib/LanguageContext";
 import PageContainer from "@/components/layout/page-container";
 import Button from "@/components/ui/button";
 import Card from "@/components/ui/card";
-import Input, { inputClassName } from "@/components/ui/input";
+import Input from "@/components/ui/input";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/table";
 import { MasteryBadge, MASTERY_ORDER } from "@/components/ui/mastery-badge";
 import type { MasteryState } from "@/features/progress/types";
 import type { WordProgressSummary } from "@/app/api/progress/words/route";
 import { validateVocabFields, type VocabFieldErrors } from "@/lib/vocab-validation";
+import { Modal } from "@/components/ui/modal";
 
 type Word = { id: string; jp: string; en: string; createdAt: string };
 type Deck = { id: string; name: string; vocabIds: string[] };
@@ -25,16 +26,72 @@ type ActivePanel = "none" | "add" | "import";
 const MAX_DECKS = 5;
 const PAGE_SIZE = 20;
 
+/** Body markup for the word mastery modal (title bar ? and Progress column ? share this). */
+function MasteryHelpModalContent({ t, titleId }: { t: (key: string) => string; titleId: string }) {
+  return (
+    <>
+      <h2
+        id={titleId}
+        className="text-base font-semibold text-gray-900 dark:text-gray-100 tracking-tight"
+      >
+        {t("masteryHelpTitle")}
+      </h2>
+      <p className="mt-3 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+        {t("masteryHelpIntro")}
+      </p>
+      <div className="mt-5 space-y-3 text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
+        {MASTERY_ORDER.map((m) => (
+          <p key={m}>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{t(`mastery_${m}`)}</span>
+            <span className="text-gray-600 dark:text-gray-400"> — {t(`masteryHelp_${m}`)}</span>
+          </p>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function VocabMasteryHelp({ t }: { t: (key: string) => string }) {
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+
+  return (
+    <>
+      <div className="inline-flex shrink-0 align-middle">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="rounded-full p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label={t("masteryHelpAria")}
+        >
+          <CircleHelp className="w-5 h-5" strokeWidth={1.75} aria-hidden />
+        </button>
+      </div>
+      <Modal open={open} onClose={() => setOpen(false)} titleId={titleId} size="md">
+        <MasteryHelpModalContent t={t} titleId={titleId} />
+      </Modal>
+    </>
+  );
+}
+
 export default function VocabPage() {
   const { t } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Paginated words for the main table
   const [words, setWords] = useState<Word[]>([]);
+  const [total, setTotal] = useState(0);
+  const [fetching, setFetching] = useState(true);
+
+  // All words, loaded once for the deck word-selector UI
+  const [allWordsForEditor, setAllWordsForEditor] = useState<Word[]>([]);
+
   const [jp, setJp] = useState("");
   const [en, setEn] = useState("");
   const [adding, setAdding] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<VocabFieldErrors>({});
-  const [fetching, setFetching] = useState(true);
   const [importStatus, setImportStatus] = useState<ImportStatus>({ state: "idle" });
   const [isDragging, setIsDragging] = useState(false);
 
@@ -46,46 +103,57 @@ export default function VocabPage() {
   const [deckSaving, setDeckSaving] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [deckFilter, setDeckFilter] = useState("all");
   const [masteryFilter, setMasteryFilter] = useState<MasteryState | "all">("all");
   const [page, setPage] = useState(1);
   const [activePanel, setActivePanel] = useState<ActivePanel>("none");
 
-  // Per-word progress
   const [progressMap, setProgressMap] = useState<Record<string, WordProgressSummary>>({});
 
-  // Compute word → first deck name
-  const wordDeckMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    decks.forEach((d) => d.vocabIds.forEach((vid) => { if (!map[vid]) map[vid] = d.name; }));
-    return map;
-  }, [decks]);
+  const [vocabSelectionMode, setVocabSelectionMode] = useState(false);
+  const [vocabSelectedIds, setVocabSelectedIds] = useState<Set<string>>(() => new Set());
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingBatch, setDeletingBatch] = useState(false);
+  const deleteConfirmTitleId = useId();
 
-  // Filtered words
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const activeDeck = deckFilter !== "all" ? decks.find((d) => d.id === deckFilter) : null;
-    return words
-      .filter((w) => !activeDeck || activeDeck.vocabIds.includes(w.id))
-      .filter((w) => !q || w.jp.toLowerCase().includes(q) || w.en.toLowerCase().includes(q))
-      .filter((w) => {
-        if (masteryFilter === "all") return true;
-        const m = progressMap[w.id]?.mastery ?? "new";
-        return m === masteryFilter;
-      });
-  }, [words, decks, deckFilter, masteryFilter, searchQuery, progressMap]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Debounce search input so we don't fire a request on every keystroke
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+    return () => clearTimeout(id);
+  }, [searchQuery]);
 
-  // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [searchQuery, deckFilter, masteryFilter]);
+  // Reset to page 1 whenever any filter changes
+  useEffect(() => { setPage(1); }, [debouncedSearch, deckFilter, masteryFilter]);
 
-  async function fetchWords() {
-    const res = await fetch("/api/vocab");
+  // Re-fetch the current page whenever page or filters change
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setFetching(true);
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (debouncedSearch) params.set("q", debouncedSearch);
+      if (deckFilter !== "all") params.set("deck", deckFilter);
+      if (masteryFilter !== "all") params.set("mastery", masteryFilter);
+      const res = await fetch(`/api/vocab?${params}`);
+      const data = await res.json();
+      if (!cancelled) {
+        setWords(Array.isArray(data.words) ? data.words : []);
+        setTotal(typeof data.total === "number" ? data.total : 0);
+        setFetching(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [page, debouncedSearch, deckFilter, masteryFilter]);
+
+  // Load all words once for the deck editor word-picker
+  async function fetchAllForEditor() {
+    const res = await fetch("/api/vocab?pageSize=5000");
     const data = await res.json();
-    setWords(Array.isArray(data) ? data : []);
-    setFetching(false);
+    setAllWordsForEditor(Array.isArray(data.words) ? data.words : []);
   }
 
   async function fetchDecks() {
@@ -99,7 +167,7 @@ export default function VocabPage() {
     setDeckFetching(false);
   }
 
-  useEffect(() => { fetchWords(); }, []);
+  useEffect(() => { fetchAllForEditor(); }, []);
   useEffect(() => { fetchDecks(); }, []);
   useEffect(() => {
     fetch("/api/progress/words")
@@ -112,6 +180,17 @@ export default function VocabPage() {
       })
       .catch(() => {});
   }, []);
+
+  async function refetchCurrentPage() {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (deckFilter !== "all") params.set("deck", deckFilter);
+    if (masteryFilter !== "all") params.set("mastery", masteryFilter);
+    const res = await fetch(`/api/vocab?${params}`);
+    const data = await res.json();
+    setWords(Array.isArray(data.words) ? data.words : []);
+    setTotal(typeof data.total === "number" ? data.total : 0);
+  }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -135,27 +214,58 @@ export default function VocabPage() {
     });
     if (!res.ok) {
       const data = await res.json();
-      if (data.code === "DUPLICATE") {
-        setFieldErrors({ jp: t("errorDuplicate") });
-      }
+      if (data.code === "DUPLICATE") setFieldErrors({ jp: t("errorDuplicate") });
       setAdding(false);
       return;
     }
     setJp("");
     setEn("");
     setFieldErrors({});
-    await fetchWords();
+    await Promise.all([refetchCurrentPage(), fetchAllForEditor()]);
     setAdding(false);
     setActivePanel("none");
   }
 
-  async function handleDelete(id: string) {
-    await fetch("/api/vocab", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
+  function toggleVocabSelected(id: string) {
+    setVocabSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-    setWords((prev) => prev.filter((w) => w.id !== id));
+  }
+
+  function toggleSelectAllWordsOnPage() {
+    setVocabSelectedIds((prev) => {
+      const next = new Set(prev);
+      const pageIds = words.map((w) => w.id);
+      const allOnPage = pageIds.length > 0 && pageIds.every((id) => next.has(id));
+      if (allOnPage) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  async function confirmDeleteSelectedWords() {
+    const ids = Array.from(vocabSelectedIds);
+    if (ids.length === 0) return;
+    setDeletingBatch(true);
+    try {
+      const res = await fetch("/api/vocab", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) return;
+      const idSet = new Set(ids);
+      setAllWordsForEditor((prev) => prev.filter((w) => !idSet.has(w.id)));
+      setDeleteConfirmOpen(false);
+      setVocabSelectionMode(false);
+      setVocabSelectedIds(new Set());
+      await refetchCurrentPage();
+    } finally {
+      setDeletingBatch(false);
+    }
   }
 
   async function handleImportFile(file: File) {
@@ -173,7 +283,7 @@ export default function VocabPage() {
       return;
     }
     setImportStatus({ state: "success", imported: data.imported, skipped: data.skipped });
-    await fetchWords();
+    await Promise.all([refetchCurrentPage(), fetchAllForEditor()]);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -244,21 +354,49 @@ export default function VocabPage() {
   function toggleEditVocab(id: string) {
     setEditVocabIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
 
+  const wordDeckMap: Record<string, string> = {};
+  decks.forEach((d) => d.vocabIds.forEach((vid) => { if (!wordDeckMap[vid]) wordDeckMap[vid] = d.name; }));
+
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, total);
+
   return (
-    <PageContainer title={t("vocabTitle")} subtitle={t("vocabSubtitle")}>
+    <PageContainer
+      title={t("vocabTitle")}
+      subtitle={t("vocabSubtitle")}
+      titleAddon={<VocabMasteryHelp t={t as (key: string) => string} />}
+      headerActions={
+        <>
+          <Button
+            variant="secondary"
+            onClick={() => togglePanel("import")}
+            className={activePanel === "import" ? "ring-2 ring-green-300 shrink-0" : "shrink-0"}
+          >
+            <Upload size={14} />
+            {t("importCSV")}
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => togglePanel("add")}
+            className={`shrink-0 ${activePanel === "add" ? "ring-2 ring-gray-400" : ""}`}
+          >
+            <Plus size={14} />
+            {t("addWord")}
+          </Button>
+        </>
+      }
+    >
       <div className="space-y-6">
 
-        {/* ── Toolbar ── */}
-        <div className="flex flex-col sm:flex-row gap-2 sm:items-center justify-between">
-          <div className="flex gap-2 flex-1">
-            {/* Search */}
-            <div className="relative flex-1 max-w-64">
+        {/* ── Toolbar: search + level | deck filters ── */}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+            <div className="relative flex-1 min-w-0">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
               <Input
                 type="search"
@@ -269,28 +407,11 @@ export default function VocabPage() {
                 aria-label={t("searchVocab")}
               />
             </div>
-
-            {/* Deck filter */}
-            {decks.length > 0 && (
-              <select
-                value={deckFilter}
-                onChange={(e) => setDeckFilter(e.target.value)}
-                className={`${inputClassName} w-auto pr-8 cursor-pointer`}
-                aria-label="Filter by deck"
-              >
-                <option value="all">{t("allDecks")}</option>
-                {decks.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            )}
-
-            {/* Mastery filter */}
             <select
               value={masteryFilter}
               onChange={(e) => setMasteryFilter(e.target.value as MasteryState | "all")}
-              className={`${inputClassName} w-auto pr-8 cursor-pointer`}
-              aria-label="Filter by mastery"
+              className="w-full sm:w-44 shrink-0 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 cursor-pointer"
+              aria-label={t("vocabFilterByLevel")}
             >
               <option value="all">{t("allLevels")}</option>
               {MASTERY_ORDER.map((m) => (
@@ -299,24 +420,32 @@ export default function VocabPage() {
             </select>
           </div>
 
-          <div className="flex gap-2 shrink-0">
-            <Button
-              variant="secondary"
-              onClick={() => togglePanel("import")}
-              className={activePanel === "import" ? "ring-2 ring-green-300" : ""}
-            >
-              <Upload size={14} />
-              {t("importCSV")}
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => togglePanel("add")}
-              className={`bg-green-600 hover:bg-green-700 ${activePanel === "add" ? "ring-2 ring-green-300" : ""}`}
-            >
-              <Plus size={14} />
-              {t("addWord")}
-            </Button>
-          </div>
+          {(decks.length > 0 || masteryFilter !== "all" || deckFilter !== "all") && (
+            <div className="flex flex-wrap gap-2 items-center">
+              {decks.length > 0 && (
+                <select
+                  value={deckFilter}
+                  onChange={(e) => setDeckFilter(e.target.value)}
+                  className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 cursor-pointer min-w-0"
+                  aria-label="Filter by deck"
+                >
+                  <option value="all">{t("allDecks")}</option>
+                  {decks.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              )}
+              {(masteryFilter !== "all" || deckFilter !== "all") && (
+                <button
+                  type="button"
+                  onClick={() => { setMasteryFilter("all"); setDeckFilter("all"); }}
+                  className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  {t("vocabClearFilters")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Add Word panel ── */}
@@ -332,9 +461,7 @@ export default function VocabPage() {
                   autoFocus
                   className={fieldErrors.jp ? "border-red-400 focus:border-red-400 focus:ring-red-200" : ""}
                 />
-                {fieldErrors.jp && (
-                  <p className="text-xs text-red-500 mt-1">{fieldErrors.jp}</p>
-                )}
+                {fieldErrors.jp && <p className="text-xs text-red-500 mt-1">{fieldErrors.jp}</p>}
               </div>
               <div className="flex-1 min-w-0">
                 <Input
@@ -344,24 +471,12 @@ export default function VocabPage() {
                   onChange={(e) => { setEn(e.target.value); setFieldErrors((prev) => ({ ...prev, en: undefined })); }}
                   className={fieldErrors.en ? "border-red-400 focus:border-red-400 focus:ring-red-200" : ""}
                 />
-                {fieldErrors.en && (
-                  <p className="text-xs text-red-500 mt-1">{fieldErrors.en}</p>
-                )}
+                {fieldErrors.en && <p className="text-xs text-red-500 mt-1">{fieldErrors.en}</p>}
               </div>
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={adding}
-                className="shrink-0 bg-green-600 hover:bg-green-700"
-              >
+              <Button type="submit" variant="primary" disabled={adding} className="shrink-0 bg-green-600 hover:bg-green-700">
                 {adding ? "Adding…" : t("addWord")}
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => { setActivePanel("none"); setFieldErrors({}); }}
-                className="shrink-0"
-              >
+              <Button type="button" variant="ghost" onClick={() => { setActivePanel("none"); setFieldErrors({}); }} className="shrink-0">
                 <X size={14} />
               </Button>
             </form>
@@ -415,39 +530,107 @@ export default function VocabPage() {
         {/* ── Word table ── */}
         {fetching ? (
           <p className="text-sm text-gray-400">{t("loading")}</p>
-        ) : words.length === 0 ? (
+        ) : total === 0 && !debouncedSearch && deckFilter === "all" && masteryFilter === "all" ? (
           <p className="text-sm text-gray-400">{t("noWords")}</p>
         ) : (
           <div className="space-y-3">
-            {/* Result count */}
-            <p className="text-xs text-gray-400">
-              {t("showingRange")
-                .replace("{{from}}", String(filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1))
-                .replace("{{to}}", String(Math.min(page * PAGE_SIZE, filtered.length)))
-                .replace("{{total}}", String(filtered.length))}
-              {(searchQuery.trim() || deckFilter !== "all") && filtered.length !== words.length && ` (${words.length} total)`}
-            </p>
-
             <Table>
               <TableHead>
                 <tr>
+                  {vocabSelectionMode && (
+                    <Th className="w-11 pl-3 pr-1">
+                      {words.length > 0 ? (
+                        <input
+                          type="checkbox"
+                          checked={words.length > 0 && words.every((w) => vocabSelectedIds.has(w.id))}
+                          ref={(el) => {
+                            if (el) {
+                              const some = words.some((w) => vocabSelectedIds.has(w.id));
+                              const all = words.length > 0 && words.every((w) => vocabSelectedIds.has(w.id));
+                              el.indeterminate = some && !all;
+                            }
+                          }}
+                          onChange={toggleSelectAllWordsOnPage}
+                          className="rounded border-gray-300 dark:border-gray-600 accent-green-600 w-4 h-4"
+                          aria-label={t("vocabSelectAllPage")}
+                        />
+                      ) : null}
+                    </Th>
+                  )}
                   <Th>{t("colJapanese")}</Th>
                   <Th>{t("colEnglish")}</Th>
                   <Th>{t("colDeck")}</Th>
-                  <Th>{t("colProgress")}</Th>
-                  <Th className="w-12" />
+                  <Th className="whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5">
+                      {t("colProgress")}
+                      <VocabMasteryHelp t={t as (key: string) => string} />
+                    </span>
+                  </Th>
+                  {total > 0 && (
+                    <Th className="w-px whitespace-nowrap text-right align-middle normal-case pr-3">
+                      {!vocabSelectionMode ? (
+                        <button
+                          type="button"
+                          onClick={() => setVocabSelectionMode(true)}
+                          className="inline-flex items-center justify-center p-1.5 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                          aria-label={t("vocabChooseWordsToDelete")}
+                          title={t("vocabChooseWordsToDelete")}
+                        >
+                          <Pencil size={16} strokeWidth={1.75} aria-hidden />
+                        </button>
+                      ) : (
+                        <div className="inline-flex flex-col items-end gap-1.5 sm:flex-row sm:items-center sm:justify-end sm:gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVocabSelectionMode(false);
+                              setVocabSelectedIds(new Set());
+                            }}
+                            className="text-xs font-medium text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                          >
+                            {t("vocabSelectDone")}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={vocabSelectedIds.size === 0}
+                            onClick={() => setDeleteConfirmOpen(true)}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400 px-2 py-1 rounded-md border border-red-200 dark:border-red-900/80 bg-red-50/80 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-950/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Trash2 size={12} className="shrink-0" aria-hidden />
+                            {t("vocabDeleteSelected").replace("{{count}}", String(vocabSelectedIds.size))}
+                          </button>
+                        </div>
+                      )}
+                    </Th>
+                  )}
                 </tr>
               </TableHead>
               <TableBody>
-                {paginated.length === 0 ? (
+                {words.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">
+                    <td
+                      colSpan={
+                        (vocabSelectionMode ? 5 : 4) + (total > 0 ? 1 : 0)
+                      }
+                      className="px-4 py-8 text-center text-sm text-gray-400"
+                    >
                       {t("searchNoMatches").replace("{{query}}", searchQuery.trim())}
                     </td>
                   </tr>
                 ) : (
-                  paginated.map((word) => (
+                  words.map((word) => (
                     <TableRow key={word.id}>
+                      {vocabSelectionMode && (
+                        <Td className="w-11 pl-3 pr-1 align-middle">
+                          <input
+                            type="checkbox"
+                            checked={vocabSelectedIds.has(word.id)}
+                            onChange={() => toggleVocabSelected(word.id)}
+                            className="rounded border-gray-300 dark:border-gray-600 accent-green-600 w-4 h-4"
+                            aria-label={`${word.jp} / ${word.en}`}
+                          />
+                        </Td>
+                      )}
                       <Td className="font-medium text-base">{word.jp}</Td>
                       <Td className="text-gray-500 dark:text-gray-400">{word.en}</Td>
                       <Td>
@@ -460,21 +643,19 @@ export default function VocabPage() {
                       <Td>
                         <MasteryBadge mastery={progressMap[word.id]?.mastery ?? "new"} variant="pill" />
                       </Td>
-                      <Td className="text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(word.id)}
-                          className="p-1.5 rounded text-gray-300 dark:text-gray-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                          aria-label={t("removeWord")}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </Td>
+                      {total > 0 && <Td className="w-px p-3" aria-hidden />}
                     </TableRow>
                   ))
                 )}
               </TableBody>
             </Table>
+
+            <p className="text-xs text-gray-400">
+              {t("showingRange")
+                .replace("{{from}}", String(from))
+                .replace("{{to}}", String(to))
+                .replace("{{total}}", String(total))}
+            </p>
 
             {/* Pagination */}
             {totalPages > 1 && (
@@ -482,31 +663,46 @@ export default function VocabPage() {
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft size={14} /> Prev
                 </button>
 
-                <div className="flex gap-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p)}
-                      className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
-                        p === page
-                          ? "bg-green-600 text-white"
-                          : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
+                <div className="flex gap-1 items-center">
+                  {(() => {
+                    const pages: (number | "…")[] = [];
+                    const delta = 1;
+                    const left = Math.max(2, page - delta);
+                    const right = Math.min(totalPages - 1, page + delta);
+                    pages.push(1);
+                    if (left > 2) pages.push("…");
+                    for (let p = left; p <= right; p++) pages.push(p);
+                    if (right < totalPages - 1) pages.push("…");
+                    if (totalPages > 1) pages.push(totalPages);
+                    return pages.map((p, i) =>
+                      p === "…" ? (
+                        <span key={`ellipsis-${i}`} className="w-8 text-center text-sm text-gray-400">…</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p)}
+                          className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
+                            p === page
+                              ? "bg-green-600 text-white"
+                              : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      )
+                    );
+                  })()}
                 </div>
 
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page === totalPages}
-                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   Next <ChevronRight size={14} />
                 </button>
@@ -518,9 +714,7 @@ export default function VocabPage() {
         {/* ── Decks ── */}
         <Card padding="md">
           <div className="flex items-center justify-between gap-2 mb-4">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-              {t("decks")}
-            </h2>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("decks")}</h2>
             <Button
               variant="secondary"
               className="text-sm px-3 py-1.5"
@@ -555,10 +749,10 @@ export default function VocabPage() {
                       />
                       <p className="text-xs text-gray-500 dark:text-gray-400">{t("selectWordsForDeck")}</p>
                       <div className="max-h-40 overflow-y-auto space-y-1.5 border border-gray-200 dark:border-gray-700 rounded-lg p-2">
-                        {words.length === 0 ? (
+                        {allWordsForEditor.length === 0 ? (
                           <p className="text-xs text-gray-400">{t("noWords")}</p>
                         ) : (
-                          words.map((w) => (
+                          allWordsForEditor.map((w) => (
                             <label key={w.id} className="flex items-center gap-2 cursor-pointer text-sm">
                               <input
                                 type="checkbox"
@@ -613,6 +807,38 @@ export default function VocabPage() {
           )}
         </Card>
 
+        <Modal
+          open={deleteConfirmOpen}
+          onClose={() => {
+            if (!deletingBatch) setDeleteConfirmOpen(false);
+          }}
+          headerTitle={t("vocabDeleteConfirmTitle")}
+          titleId={deleteConfirmTitleId}
+          size="sm"
+        >
+          <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+            {t("vocabDeleteConfirmBody").replace("{{count}}", String(vocabSelectedIds.size))}
+          </p>
+          <div className="flex flex-wrap justify-end gap-2 mt-6">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={deletingBatch}
+              onClick={() => setDeleteConfirmOpen(false)}
+            >
+              {t("cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={deletingBatch}
+              className="!bg-red-600 hover:!bg-red-700 !text-white"
+              onClick={() => void confirmDeleteSelectedWords()}
+            >
+              {deletingBatch ? t("loading") : t("vocabDeleteConfirm")}
+            </Button>
+          </div>
+        </Modal>
       </div>
     </PageContainer>
   );

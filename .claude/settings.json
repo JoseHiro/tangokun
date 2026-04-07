@@ -4,7 +4,10 @@
       "Bash(node -e \"require\\(''''wavesurfer.js''''\\)\")",
       "Bash(node -e \"console.log\\(require\\(''./node_modules/wavesurfer.js/package.json''\\).version\\)\")",
       "Bash(npm test:*)",
-      "Bash(npx prisma:*)"
+      "Bash(npx prisma:*)",
+      "Bash(find /Users/joseysekine/Documents/programming_projects/tangokun/app/api -name *grammar* -type f)",
+      "Bash(find /Users/joseysekine/Documents/programming_projects/tangokun/app -path */api/* -type f -name *.ts -o -name *.tsx)",
+      "WebFetch(domain:jlptgrammarlist.neocities.org)"
     ]
   }
 }

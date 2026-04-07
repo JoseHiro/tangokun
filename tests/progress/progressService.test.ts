@@ -7,6 +7,9 @@ vi.mock("@/lib/prisma", () => ({
       findMany: vi.fn(),
       upsert: vi.fn(),
     },
+    practiceLog: {
+      createMany: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -17,6 +20,7 @@ import type { QuestionResult } from "@/features/progress/types";
 
 const mockFindMany = vi.mocked(prisma.vocabularyProgress.findMany);
 const mockUpsert = vi.mocked(prisma.vocabularyProgress.upsert);
+const mockCreateMany = vi.mocked(prisma.practiceLog.createMany);
 const mockTransaction = vi.mocked(prisma.$transaction);
 
 // A minimal DB row shape returned by findMany
@@ -47,6 +51,7 @@ beforeEach(() => {
     Promise.all(ops as Promise<unknown>[])
   );
   mockUpsert.mockResolvedValue(dbRow() as never);
+  mockCreateMany.mockResolvedValue({ count: 0 });
 });
 
 // ── saveSessionProgress ───────────────────────────────────────────────────────

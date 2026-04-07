@@ -31,6 +31,9 @@ export async function createSession({
     getGrammarPatterns(grammarIds),
   ]);
 
+  console.log("words", words);
+  console.log("grammarPatterns", grammarPatterns);
+
   if (words.length === 0) {
     throw new Error("No vocabulary words found. Add some words first.");
   }
@@ -39,8 +42,13 @@ export async function createSession({
   const slots = buildQuestionSlots(words, grammarPatterns);
 
   // 3. Generate sentences in parallel
+  // Pass a sample of the user's other known words so the AI avoids unknown vocabulary
   const settled = await Promise.allSettled(
-    slots.map(({ word, grammar }) => generateSentence(word, grammar))
+    slots.map(({ word, grammar }) => {
+      const otherWords = words.filter((w) => w.id !== word.id);
+      const sample = otherWords.sort(() => Math.random() - 0.5).slice(0, 10);
+      return generateSentence(word, grammar, sample);
+    })
   );
 
   const questions: SessionQuestion[] = settled.flatMap((result, i) => {
@@ -52,6 +60,8 @@ export async function createSession({
         sentence: result.value.sentence,
         translation: result.value.translation,
         furigana: result.value.furigana,
+        wordInSentence: result.value.wordInSentence,
+        supportingWords: result.value.supportingWords,
         wordUsed: word,
         grammarUsed: grammar
           ? { pattern: grammar.pattern, meaning: grammar.meaning }
@@ -59,6 +69,8 @@ export async function createSession({
       } satisfies SessionQuestion,
     ];
   });
+
+  console.log("questions", questions);
 
   return {
     sessionId: randomUUID(),

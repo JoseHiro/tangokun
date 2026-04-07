@@ -1,7 +1,7 @@
 import type { VocabWord, GrammarPattern, QuestionSlot } from "@/types/practice";
 
 const MAX_WORDS = 10;
-const GRAMMAR_PROBABILITY = 0.3;
+const GRAMMAR_PROBABILITY = 0.6;
 
 /** Picks `n` random elements from an array without repetition (Fisher-Yates partial). */
 export function sample<T>(arr: T[], n: number): T[] {

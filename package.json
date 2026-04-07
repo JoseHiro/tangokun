@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed:grammar": "tsx scripts/seed-grammar.ts",
+    "seed:genki-grammar": "tsx scripts/seed-genki-grammar.ts",
+    "seed:jlpt-grammar": "tsx scripts/seed-jlpt-grammar.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

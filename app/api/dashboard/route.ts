@@ -2,13 +2,71 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { getMastery } from "@/features/progress/aggregation";
-import type { WordProgress } from "@/features/progress/types";
+import type { WordProgress, MasteryState } from "@/features/progress/types";
 
-/** Returns a deterministic 0-based index for today (changes each calendar day). */
-function todayIndex(): number {
+const MASTERY_INTERVAL: Record<MasteryState, number> = {
+  new:      0,
+  learning: 1,
+  familiar: 3,
+  strong:   7,
+  mastered: 14,
+};
+
+const STREAK_MIN_QUESTIONS = 10;
+
+function resolveDisplayName(name?: string | null, email?: string | null): string {
+  const cleanName = name?.trim() ?? "";
+  if (!cleanName) return "user";
+
+  const cleanEmail = email?.trim().toLowerCase() ?? "";
+  if (!cleanEmail) return cleanName;
+
+  const lowerName = cleanName.toLowerCase();
+  const emailLocal = cleanEmail.split("@")[0] ?? "";
+
+  // If the name is just the email (or local part), treat it as unset.
+  if (lowerName === cleanEmail || lowerName === emailLocal) return "user";
+  return cleanName;
+}
+
+/** Computes the current consecutive-day practice streak from PracticeLog rows.
+ *  A day counts only if the user answered at least STREAK_MIN_QUESTIONS questions. */
+async function computeStreak(userId: string): Promise<number> {
+  const logs = await prisma.practiceLog.findMany({
+    where: { userId },
+    select: { createdAt: true },
+  });
+  if (logs.length === 0) return 0;
+
+  // Count questions per UTC day, only include days meeting the minimum
+  const countByDay = new Map<string, number>();
+  for (const { createdAt } of logs) {
+    const day = createdAt.toISOString().slice(0, 10);
+    countByDay.set(day, (countByDay.get(day) ?? 0) + 1);
+  }
+  const qualifiedDays = new Set(
+    Array.from(countByDay.entries())
+      .filter(([, count]) => count >= STREAK_MIN_QUESTIONS)
+      .map(([day]) => day)
+  );
+
+  if (qualifiedDays.size === 0) return 0;
+
   const now = new Date();
-  const start = new Date(now.getFullYear(), 0, 0);
-  return Math.floor((now.getTime() - start.getTime()) / 86_400_000);
+  let cursor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  // If didn't qualify today, allow the streak to continue from yesterday
+  if (!qualifiedDays.has(cursor.toISOString().slice(0, 10))) {
+    cursor = new Date(cursor.getTime() - 86_400_000);
+    if (!qualifiedDays.has(cursor.toISOString().slice(0, 10))) return 0;
+  }
+
+  let streak = 0;
+  while (qualifiedDays.has(cursor.toISOString().slice(0, 10))) {
+    streak++;
+    cursor = new Date(cursor.getTime() - 86_400_000);
+  }
+  return streak;
 }
 
 export async function GET() {
@@ -17,26 +75,50 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = session.user.id;
+  const displayName = resolveDisplayName(session.user.name, session.user.email);
   const now = new Date();
 
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-  const [totalVocab, progressAgg, dueToday, allProgress] = await Promise.all([
+  const [totalVocab, allProgress, streak] = await Promise.all([
     prisma.vocabulary.count({ where: { userId } }),
-    prisma.vocabularyProgress.aggregate({
-      where: { userId },
-      _sum: { lifetimeCorrect: true, lifetimeAttempts: true },
-    }),
-    // Words not seen in the last 7 days (or never seen) count as "due"
-    prisma.vocabularyProgress.count({
-      where: { userId, OR: [{ lastSeen: null }, { lastSeen: { lte: sevenDaysAgo } }] },
-    }),
     prisma.vocabularyProgress.findMany({ where: { userId } }),
+    computeStreak(userId),
   ]);
 
-  const totalCorrect = progressAgg._sum.lifetimeCorrect ?? 0;
-  const total = progressAgg._sum.lifetimeAttempts ?? 0;
-  const accuracy = total > 0 ? Math.round((totalCorrect / total) * 100) : 0;
+  // Due for review: practiced before AND interval has elapsed based on mastery
+  const dueForReview = allProgress.filter((row) => {
+    if (!row.lastSeen) return false; // never practiced → counts as "new", not "review"
+    const p: WordProgress = {
+      wordId: row.vocabId, userId: row.userId,
+      lifetimeAttempts: row.lifetimeAttempts, lifetimeCorrect: row.lifetimeCorrect,
+      recentSessionScores: Array.isArray(row.recentSessionScores) ? (row.recentSessionScores as number[]) : [],
+      lastSessionScore: row.lastSessionScore, lastSeen: row.lastSeen,
+    };
+    const mastery = getMastery(p);
+    const intervalDays = MASTERY_INTERVAL[mastery];
+    const dueDate = new Date(row.lastSeen);
+    dueDate.setDate(dueDate.getDate() + intervalDays);
+    return dueDate <= now;
+  }).length;
+
+  // New words: in vocabulary but never practiced (no progress record)
+  const newWordsAvailable = totalVocab - allProgress.length;
+
+  // Recent accuracy: average of each practiced word's rolling session score average.
+  // This reflects current skill, not historical accumulation.
+  const practicedWords = allProgress.filter(
+    (r) => Array.isArray(r.recentSessionScores) && (r.recentSessionScores as number[]).length > 0
+  );
+  const accuracy =
+    practicedWords.length === 0
+      ? 0
+      : Math.round(
+          (practicedWords.reduce((sum, r) => {
+            const scores = r.recentSessionScores as number[];
+            return sum + scores.reduce((s, v) => s + v, 0) / scores.length;
+          }, 0) /
+            practicedWords.length) *
+            100
+        );
 
   // Mastery breakdown — words with no progress record count as "new"
   const masteryBreakdown = { new: 0, learning: 0, familiar: 0, strong: 0, mastered: 0 };
@@ -51,30 +133,13 @@ export async function GET() {
   }
   masteryBreakdown.new += totalVocab - allProgress.length;
 
-  // Word of the day — deterministic per calendar day
-  let wordOfTheDay = null;
-  if (totalVocab > 0) {
-    const skip = todayIndex() % totalVocab;
-    const word = await prisma.vocabulary.findFirst({
-      where: { userId },
-      skip,
-      orderBy: { createdAt: "asc" },
-      select: { jp: true, en: true },
-    });
-    if (word) {
-      const sentence = await prisma.sentence.findFirst({
-        where: { text: { contains: word.jp } },
-        orderBy: { createdAt: "desc" },
-        select: { text: true, translation: true },
-      });
-      wordOfTheDay = {
-        jp: word.jp,
-        en: word.en,
-        example: sentence?.text ?? null,
-        exampleTranslation: sentence?.translation ?? null,
-      };
-    }
-  }
-
-  return NextResponse.json({ dueToday, totalVocab, accuracy, wordOfTheDay, masteryBreakdown });
+  return NextResponse.json({
+    displayName,
+    dueForReview,
+    newWordsAvailable,
+    totalVocab,
+    accuracy,
+    masteryBreakdown,
+    streak,
+  });
 }

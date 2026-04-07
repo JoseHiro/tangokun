@@ -2,20 +2,89 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { containsJapanese, VOCAB_LIMITS } from "@/lib/vocab-validation";
+import { getMastery } from "@/features/progress/aggregation";
+import type { WordProgress } from "@/features/progress/types";
+import type { Prisma } from "@prisma/client";
 
 function unauthorized() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return unauthorized();
+  const userId = session.user.id;
 
-  const vocab = await prisma.vocabulary.findMany({
-    where: { userId: session.user.id },
-    orderBy: { createdAt: "desc" },
-  });
-  return NextResponse.json(vocab);
+  const { searchParams } = new URL(req.url);
+  const q = searchParams.get("q")?.trim() ?? "";
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+  const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") ?? "20", 10)));
+  const deckId = searchParams.get("deck") ?? "all";
+  const masteryParam = searchParams.get("mastery") ?? "all";
+
+  const where: Prisma.VocabularyWhereInput = { userId };
+
+  // Server-side text search
+  if (q) {
+    where.OR = [
+      { jp: { contains: q, mode: "insensitive" } },
+      { en: { contains: q, mode: "insensitive" } },
+    ];
+  }
+
+  // Deck filter — resolve to a list of vocab IDs
+  if (deckId !== "all") {
+    const deck = await prisma.deck.findUnique({ where: { id: deckId } });
+    const ids = Array.isArray(deck?.vocabIds) ? (deck.vocabIds as string[]) : [];
+    where.id = { in: ids };
+  }
+
+  // Mastery filter — derive matching word IDs from VocabularyProgress
+  if (masteryParam !== "all") {
+    const allProgress = await prisma.vocabularyProgress.findMany({
+      where: { userId },
+      select: { vocabId: true, lifetimeAttempts: true, lifetimeCorrect: true, recentSessionScores: true, lastSessionScore: true, lastSeen: true },
+    });
+
+    const practicedIds = new Set(allProgress.map((p) => p.vocabId));
+
+    if (masteryParam === "new") {
+      // "new" = never practiced at all
+      const existingIdFilter = (where.id as { in?: string[] } | undefined)?.in;
+      if (existingIdFilter) {
+        where.id = { in: existingIdFilter.filter((id) => !practicedIds.has(id)) };
+      } else {
+        where.id = { notIn: Array.from(practicedIds) };
+      }
+    } else {
+      const matchingIds = allProgress
+        .filter((p) => {
+          const prog: WordProgress = {
+            wordId: p.vocabId, userId,
+            lifetimeAttempts: p.lifetimeAttempts, lifetimeCorrect: p.lifetimeCorrect,
+            recentSessionScores: Array.isArray(p.recentSessionScores) ? (p.recentSessionScores as number[]) : [],
+            lastSessionScore: p.lastSessionScore, lastSeen: p.lastSeen,
+          };
+          return getMastery(prog) === masteryParam;
+        })
+        .map((p) => p.vocabId);
+
+      const existingIdFilter = (where.id as { in?: string[] } | undefined)?.in;
+      where.id = { in: existingIdFilter ? existingIdFilter.filter((id) => matchingIds.includes(id)) : matchingIds };
+    }
+  }
+
+  const [words, total] = await Promise.all([
+    prisma.vocabulary.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: pageSize,
+      skip: (page - 1) * pageSize,
+    }),
+    prisma.vocabulary.count({ where }),
+  ]);
+
+  return NextResponse.json({ words, total, page, pageSize });
 }
 
 export async function POST(req: NextRequest) {
@@ -50,21 +119,36 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(word, { status: 201 });
 }
 
+const MAX_DELETE_BATCH = 200;
+
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) return unauthorized();
+  const userId = session.user.id;
 
-  const { id } = await req.json();
-  if (!id) {
-    return NextResponse.json({ error: "id is required" }, { status: 400 });
+  const body = await req.json();
+  const fromArray = Array.isArray(body.ids)
+    ? body.ids.filter((x: unknown): x is string => typeof x === "string" && x.length > 0)
+    : [];
+  const ids =
+    fromArray.length > 0
+      ? [...new Set(fromArray)].slice(0, MAX_DELETE_BATCH)
+      : typeof body.id === "string" && body.id
+        ? [body.id]
+        : [];
+
+  if (ids.length === 0) {
+    return NextResponse.json({ error: "id or non-empty ids[] is required" }, { status: 400 });
   }
 
-  // Ensure the word belongs to the requesting user
-  const word = await prisma.vocabulary.findUnique({ where: { id } });
-  if (!word || word.userId !== session.user.id) {
+  const result = await prisma.vocabulary.deleteMany({
+    where: { userId, id: { in: ids } },
+  });
+
+  const singleIdRequest = typeof body.id === "string" && !Array.isArray(body.ids);
+  if (singleIdRequest && result.count === 0) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  await prisma.vocabulary.delete({ where: { id } });
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, deleted: result.count });
 }
